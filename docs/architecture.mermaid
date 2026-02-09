@@ -1,0 +1,15 @@
+graph TD
+    User["👤 User / Chairman"] -->|Input| Main["🔄 Game Loop (Main.py)"]
+    Main -->|Situation Report| Agent["🤖 IronAgent"]
+    
+    subgraph "The Mutable Soul"
+        Agent -->|Read State| JSON["📄 soul_state.json"]
+        Agent -->|Query Memory| Vector["🧠 ChromaDB (Dreams)"]
+    end
+    
+    Agent -->|Draft Response| Ego["🛡️ Integrity Filter"]
+    Ego --"Reject"--> Agent
+    Ego --"Approve"--> Output["🗣️ Final Response"]
+    
+    Output -->|Trigger| Physics["⚖️ Physics Engine (Gamemaster)"]
+    Physics -->|Update Stats| JSON

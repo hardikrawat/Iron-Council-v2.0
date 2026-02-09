@@ -1,0 +1,43 @@
+# Security & Secrets
+.env
+*.env
+
+# Python Runtime
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual Environments
+venv/
+venv_stable/
+env/
+ENV/
+
+# Database (Local vector store)
+db/
+*.db
+*.sqlite
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
