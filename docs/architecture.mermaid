@@ -1,15 +1,57 @@
+%% IRON COUNCIL v2.0 — Full System Architecture
+%% BDI Cognitive Architecture with Separation of Powers
+
 graph TD
-    User["👤 User / Chairman"] -->|Input| Main["🔄 Game Loop (Main.py)"]
-    Main -->|Situation Report| Agent["🤖 IronAgent"]
-    
-    subgraph "The Mutable Soul"
-        Agent -->|Read State| JSON["📄 soul_state.json"]
-        Agent -->|Query Memory| Vector["🧠 ChromaDB (Dreams)"]
+    User["User / Chairman"] -->|Input| Loop["Turn Loop"]
+
+    subgraph "ACTION PHASE — Sequential Agent Processing"
+        Loop -->|For Each Agent| Recall["Recall: Query ChromaDB"]
+        Recall --> Draft["Draft Response via LLM"]
+        Draft --> Ego["Integrity Filter"]
+        Ego -->|Reject| Draft
+        Ego -->|Approve| Output["Final Response"]
     end
-    
-    Agent -->|Draft Response| Ego["🛡️ Integrity Filter"]
-    Ego --"Reject"--> Agent
-    Ego --"Approve"--> Output["🗣️ Final Response"]
-    
-    Output -->|Trigger| Physics["⚖️ Physics Engine (Gamemaster)"]
-    Physics -->|Update Stats| JSON
+
+    subgraph "The Mutable Soul"
+        JSON["soul_state.json"]
+        Vector["ChromaDB — Subjective Memory"]
+        Recall -->|Query| Vector
+        Draft -->|Read State| JSON
+    end
+
+    subgraph "CONSEQUENCE PHASE — Physics Engine"
+        Output -->|Trigger| PhysicsUA["calculate_impact — User-Agent ONLY"]
+        PhysicsUA -->|Stats + Goals| JSON
+        PhysicsUA -.->|"NO relationships here"| PhysicsUA
+
+        AllDone["All Agents Finished"] --> Reconcile["reconcile_turn — Agent-Agent ONLY"]
+        Reconcile -->|Semantic Alignment| LLM_R["LLM: Sarcasm-Aware Analysis"]
+        LLM_R -->|Trust Delta Matrix| Reconcile
+        Reconcile -->|Vote Detection + Penalties| JSON
+    end
+
+    Output --> AllDone
+
+    subgraph "REFLECTION PHASE — End of Session"
+        EndSession["end session"] --> Dream["Dream Phase"]
+        Dream -->|Trust Deltas Injected| Diary["Subjective Diary Entry"]
+        Diary -->|Store| Vector
+        Diary --> Agenda["review_agendas — Hidden Agenda Re-evaluation"]
+        Agenda -->|Updated Agendas| JSON
+    end
+
+    subgraph "VISUAL LAYER — Optional"
+        Server["FastAPI + WebSocket — server.py"]
+        UI["React Frontend — localhost:5173"]
+        Server <-->|Real-time Streaming| UI
+        UI --> Graph["Syndicate Graph — Trust Network"]
+        UI --> Thread["Thread View — Public + Spoiler"]
+        UI --> Stats["Agent Stats Sidebar"]
+    end
+
+    Loop -.->|WebSocket| Server
+
+    style PhysicsUA fill:#e6f3ff,stroke:#1a73e8
+    style Reconcile fill:#fff3e0,stroke:#e65100
+    style Dream fill:#e8f5e9,stroke:#2e7d32
+    style Ego fill:#fce4ec,stroke:#c62828

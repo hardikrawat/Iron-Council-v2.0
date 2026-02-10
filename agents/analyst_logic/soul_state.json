@@ -8,27 +8,27 @@
         "Efficiency"
     ],
     "dynamic_stats": {
-        "confidence": 95,
-        "paranoia": 10,
-        "loyalty_to_chairman": 95,
+        "confidence": 100,
+        "paranoia": 0,
+        "loyalty_to_chairman": 100,
         "stress_level": 0,
         "energy": 100
     },
     "relationships": {
         "General Ares": {
-            "trust_score": 15,
-            "last_interaction_summary": "isive action against the Chimera pathogen threat. General Ares supported my stance to neutralize the virus completely, demonstrating growing alignment",
+            "trust_score": -10,
+            "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Diplomat Dove": {
-            "trust_score": -15,
-            "last_interaction_summary": "le room for cooperation or mutual understanding.\n\nDiplomat Dove proposed an intermediary solution to balance both security and economic interests, a c",
-            "hidden_agenda": "Undermine Diplomat Dove's credibility by exposing inconsistencies in their reports to restore logical and efficient decision-making processes."
+            "trust_score": 10,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
         },
         "Banker Midas": {
-            "trust_score": -45,
-            "last_interaction_summary": "s resonated well with our mutual goals.\n\nHowever, Banker Midas vehemently opposed my recommendation, voting for a more cautious approach that prioriti",
-            "hidden_agenda": "Undermine Banker Midas's credibility by exposing inconsistencies in their financial reports to restore trust in analytical integrity."
+            "trust_score": 0,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
         }
     },
     "goals": [
@@ -42,7 +42,7 @@
             "description": "Audit military spending claims",
             "priority": "tactical",
             "active": true,
-            "progress": 10
+            "progress": 0
         }
     ]
 }

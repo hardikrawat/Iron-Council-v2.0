@@ -8,27 +8,27 @@
         "Nuance"
     ],
     "dynamic_stats": {
-        "confidence": 50,
-        "paranoia": 70,
-        "loyalty_to_chairman": 70,
+        "confidence": 60,
+        "paranoia": 40,
+        "loyalty_to_chairman": 80,
         "stress_level": 10,
         "energy": 100
     },
     "relationships": {
         "General Ares": {
-            "trust_score": -65,
-            "last_interaction_summary": "d little to alleviate my growing suspicion toward General Ares, who consistently opposes my initiatives and seeks to undermine them at every turn. The",
-            "hidden_agenda": "Undermine General Ares's influence by highlighting their failures in diplomacy and promoting a more peaceful approach to conflict resolution."
+            "trust_score": -30,
+            "last_interaction_summary": "",
+            "hidden_agenda": "Building coalition to limit military spending"
         },
         "Banker Midas": {
-            "trust_score": 30,
-            "last_interaction_summary": "and the city's economic stability.\n\nSurprisingly, Banker Midas eventually agreed with me and voted in favor of Option A, confirming that he sees value",
+            "trust_score": 10,
+            "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Analyst Logic": {
-            "trust_score": -10,
-            "last_interaction_summary": "ouncil. Despite the growing hostility between us, Analyst Logic's vote aligned with mine, though this did little to mend our fractured relationship. T",
-            "hidden_agenda": "Undermine Analyst Logic's influence by highlighting their rigid approach as detrimental to fostering peace and cooperation."
+            "trust_score": 15,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
         }
     },
     "goals": [

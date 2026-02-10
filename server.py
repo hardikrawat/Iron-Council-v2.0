@@ -28,8 +28,7 @@ from core.agent import IronAgent
 from core.llm import LLMService
 from core.physics import GamemasterPhysics
 from memory.store import SubjectiveMemory
-from memory.store import SubjectiveMemory
-from core.dream import dream_phase, dream_phase_stream, review_agendas, update_interaction_summaries
+from core.dream import dream_phase, dream_phase_stream, review_agendas
 
 
 # Setup logging
@@ -641,16 +640,6 @@ async def keepalive_task():
         ]
         msg = random.choice(heartbeats)
         await SystemLogger.log("SYSTEM", msg, "DEBUG")
-
-@app.on_event("startup")
-async def startup_event():
-    global main_loop
-    main_loop = asyncio.get_running_loop()
-    asyncio.create_task(keepalive_task())
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 @app.on_event("startup")
 async def startup_event():
