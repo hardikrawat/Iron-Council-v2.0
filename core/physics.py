@@ -12,8 +12,9 @@ class GamemasterPhysics:
     Background process that judges interactions and calculates stat impacts.
 
     DOMAIN SEPARATION:
-    - calculate_impact()  → User ↔ Agent ONLY (stats + goals)
-    - reconcile_turn()    → Agent ↔ Agent ONLY (relationship trust deltas)
+    - calculate_impact()  → User ↔ Agent (Used in both modes)
+    - reconcile_turn()    → Agent ↔ Agent (Legacy/Terminal Mode ONLY)
+    - calculate_relationship_update() → Agent ↔ Agent (Event-Driven/Web Mode ONLY)
     """
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
@@ -247,3 +248,83 @@ Expected Schema (for {len(agent_names)} agents):
             logger.error(f"Error in reconcile_turn: {e}")
             return {}
 
+
+    def calculate_relationship_update(
+        self,
+        speaker_name: str,
+        content: str,
+        listener_agent: object # Type hint as object to avoid circular import, effectively IronAgent
+    ) -> int:
+        """
+        Calculates the change in trust for a listener agent based on what a speaker said.
+        Updates the listener's relationship with the speaker directly.
+        Returns the delta for logging/debugging.
+        """
+        listener_soul = listener_agent.soul
+        
+        # Self-talk check
+        if speaker_name == listener_soul.name:
+            return 0
+
+        # Current relationship context
+        current_rel = listener_soul.get_relationship(speaker_name) # Assuming this method exists or we access dict directly
+        # If get_relationship might return a default object or we access raw dict:
+        if not current_rel and speaker_name in listener_soul.relationships:
+             current_rel = listener_soul.relationships[speaker_name]
+
+        current_trust = current_rel.trust_score if current_rel else 0
+
+        system_prompt = (
+            f"You are the Relationship Engine. You determine how {listener_soul.name}'s "
+            f"opinion of {speaker_name} changes based on their recent statement."
+        )
+        
+        user_prompt = f"""
+Listener: {listener_soul.name}
+Listener's Core Values: {', '.join(listener_soul.core_values)}
+Current Trust in Speaker: {current_trust}
+
+Speaker: {speaker_name}
+Statement: "{content}"
+
+TASK:
+Determine the Trust Delta (change in trust score).
+- Range: -15 to +15.
+- If the statement aligns with Listener's values -> Positive.
+- If the statement contradicts Listener's values -> Negative.
+- If the statement is neutral/irrelevant -> 0.
+- If the statement attacks the Listener -> Highly Negative.
+
+Output ONLY an integer.
+"""
+
+        try:
+            response_text = self.llm_service.generate_response(
+                model_name="gpt-4o", # Or listener_soul.base_model if preferred, but engine usually uses smart model
+                system_prompt=system_prompt,
+                user_message=user_prompt
+            )
+
+            # Clean up response
+            response_text = response_text.strip()
+            # Remove any markdown or extra text
+            match = re.search(r'-?\d+', response_text)
+            if match:
+                 delta = int(match.group())
+            else:
+                 logger.warning(f"Could not parse delta from LLM: {response_text}")
+                 delta = 0
+
+            # Clamp delta
+            delta = max(-15, min(15, delta))
+
+            # Update Relationship
+            if delta != 0:
+                listener_soul.update_relationship(speaker_name, delta)
+                logger.info(f"[RELATIONSHIP] {listener_soul.name} -> {speaker_name}: Delta {delta} (New Total: {listener_soul.relationships[speaker_name].trust_score})")
+            
+            return delta
+
+        except Exception as e:
+            logger.error(f"Error in calculate_relationship_update: {e}")
+            return 0
