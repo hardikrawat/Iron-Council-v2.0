@@ -11,10 +11,38 @@
         "confidence": 60,
         "paranoia": 40,
         "loyalty_to_chairman": 80,
-        "stress_level": 10
+        "stress_level": 10,
+        "energy": 100
     },
     "relationships": {
-        "General Ares": -30,
-        "Banker Midas": 10
-    }
+        "General Ares": {
+            "trust_score": -30,
+            "last_interaction_summary": "",
+            "hidden_agenda": "Building coalition to limit military spending"
+        },
+        "Banker Midas": {
+            "trust_score": 10,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        },
+        "Analyst Logic": {
+            "trust_score": 15,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        }
+    },
+    "goals": [
+        {
+            "description": "Broker a lasting peace agreement",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Win Analyst Logic's support for diplomacy",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }

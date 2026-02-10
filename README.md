@@ -1,119 +1,155 @@
-# 🏰 Project IRON COUNCIL v2.0
+# Project IRON COUNCIL v2.0
 
-**A Psychological Simulation Engine with Mutable Psyche & Subjective Memory.**
+**A Psychological Simulation Engine with BDI Architecture, Dynamic Relationships & Subjective Memory.**
 
-> *"Agents are no longer static personas. They hold grudges, suffer trauma, and refuse to yield."*
+> *"Agents are no longer static personas. They hold grudges, form alliances, suffer stress, and refuse to yield."*
 
----
-
-## 🧠 The Concept
-
-Unlike traditional RAG chatbots, the **Iron Council** features:
-
-- **Mutable Soul**: Agents have JSON-based stats (Loyalty, Confidence, Paranoia) that persist between sessions.
-
-- **Physics of Consequence**: If you insult an agent, a background "Gamemaster" engine mathematically lowers their loyalty.
-
-- **Subjective Memory (Dreaming)**: Agents do not remember chat logs. They "sleep" after sessions and write biased diary entries into a Vector DB.
-
-- **The Ego Filter**: A secondary LLM pre-checks every response to ensure it matches the agent's current emotional state.
+![Council Session UI](docs/screenshots/council-session-ui.png)
 
 ---
 
-## 🎭 Meet the Council
+## The Concept
 
-The Iron Council consists of four distinct personalities:
+Unlike traditional multi-agent systems, the **Iron Council** simulates political dynamics through a cognitive architecture where agents **evolve beliefs**, **pursue goals**, and **dream biased memories**:
 
-| Agent | Archetype | Core Values | Starting Loyalty |
-|-------|-----------|-------------|------------------|
+- **BDI Architecture**: Each agent has Beliefs (relationships with trust scores), Desires (prioritized goals with progress tracking), and Intentions (generated via LLM at runtime).
+
+- **Physics of Consequence**: A background "Gamemaster" engine analyzes every interaction and calculates psychological impact — stats shift, goals advance, and trust between agents rises or falls.
+
+- **Separation of Powers**: User-to-agent impact (stats, goals) and agent-to-agent dynamics (trust) are computed in isolated passes to prevent hallucinated conflicts.
+
+- **Subjective Memory (Dreaming)**: After sessions, agents "sleep" and write biased diary entries into a vector database. They don't recall chat logs — they recall *feelings*.
+
+- **The Ego Filter**: A secondary LLM pass validates that every response matches the agent's current emotional state before delivery.
+
+---
+
+## Meet the Council
+
+| Agent | Archetype | Core Values | Default Loyalty |
+|-------|-----------|-------------|-----------------|
 | **General Ares** | Military Commander | Strength, Hierarchy, Decisiveness | 40% (Suspicious) |
 | **Diplomat Dove** | Peace Negotiator | Peace, Cooperation, Nuance | 80% (Loyal) |
 | **Banker Midas** | Financial Strategist | Wealth, Stability, Leverage | 20% (Self-Interested) |
 | **Analyst Logic** | Data Scientist | Truth, Data, Efficiency | 100% (Unwavering) |
 
-Each agent maintains **dynamic relationships** with the others, creating emergent political dynamics.
+Each agent maintains **dynamic relationships** with the others — rich objects with trust scores (-100 to +100), interaction memory, and hidden agendas that evolve through gameplay.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-```mermaid
-graph TD
-    User["👤 User / Chairman"] -->|Input| Main["🔄 Game Loop (Main.py)"]
-    Main -->|Situation Report| Agent["🤖 IronAgent"]
-    
-    subgraph "The Mutable Soul"
-        Agent -->|Read State| JSON["📄 soul_state.json"]
-        Agent -->|Query Memory| Vector["🧠 ChromaDB (Dreams)"]
-    end
-    
-    Agent -->|Draft Response| Ego["🛡️ Integrity Filter"]
-    Ego --"Reject"--> Agent
-    Ego --"Approve"--> Output["🗣️ Final Response"]
-    
-    Output -->|Trigger| Physics["⚖️ Physics Engine (Gamemaster)"]
-    Physics -->|Update Stats| JSON
+```
+User Input ("Chairman")
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│  AGENTS SPEAK (Sequential)                  │
+│  ├─ Recall: Query vector memory (ChromaDB)  │
+│  ├─ Draft: Generate response via LLM        │
+│  └─ Filter: Ego integrity check             │
+└─────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│  PHYSICS: User ↔ Agent (Inline)             │
+│  ├─ Stat changes (confidence, paranoia...)  │
+│  └─ Goal progress updates                  │
+└─────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│  RECONCILIATION: Agent ↔ Agent (Post-Turn)  │
+│  ├─ Semantic alignment analysis             │
+│  ├─ Sarcasm detection                       │
+│  ├─ Vote extraction + conflict penalties    │
+│  └─ Trust delta matrix applied              │
+└─────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│  DREAMING (End of Session)                  │
+│  ├─ Trust deltas injected as context        │
+│  ├─ Chain-of-thought alliance analysis      │
+│  ├─ Subjective diary → vector memory        │
+│  └─ Hidden agenda re-evaluation             │
+└─────────────────────────────────────────────┘
 ```
 
 ### Key Components
 
-- **`core/agent.py`**: The IronAgent class - handles soul state, memory recall, and response generation
-- **`core/llm.py`**: Universal LLM service supporting OpenAI, Anthropic, and local models (Ollama)
-- **`core/physics.py`**: Gamemaster physics engine that calculates psychological impact
-- **`core/integrity.py`**: Ego filter that validates responses match agent's emotional state
-- **`core/dream.py`**: Dream phase logic for memory consolidation
-- **`memory/store.py`**: Subjective memory system using ChromaDB vector database
-- **`agents/*/soul_state.json`**: Persistent agent state files
+| Module | File | Purpose |
+|--------|------|---------|
+| **Agent** | `core/agent.py` | Soul state management, memory recall, response generation with ego filter |
+| **Schema** | `core/schema.py` | Pydantic models — `AgentSoul`, `RelationshipModel`, `Goal`, `DynamicStats` |
+| **Physics** | `core/physics.py` | `calculate_impact()` for User↔Agent stats; `reconcile_turn()` for Agent↔Agent trust |
+| **Dreams** | `core/dream.py` | Dream phase with trust-delta injection, interaction summaries, agenda review |
+| **Integrity** | `core/integrity.py` | Ego filter — validates responses match agent's emotional state |
+| **LLM** | `core/llm.py` | Universal LLM service — OpenAI, Anthropic, Ollama (local) |
+| **Memory** | `memory/store.py` | ChromaDB vector database for subjective memory storage and retrieval |
+| **Server** | `server.py` | FastAPI + WebSocket backend for the visual layer |
+| **Terminal** | `main.py` | CLI entry point with interactive LLM setup walkthrough |
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.11+
+- Node.js 18+ (for the visual layer)
 - At least one of:
   - OpenAI API key
   - Anthropic API key
-  - Local Ollama installation
+  - Local [Ollama](https://ollama.ai) installation
 
-### Setup Steps
+### Setup
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/hardikrawat/IronCouncil.git
-   cd IronCouncil
-   ```
+```bash
+# Clone
+git clone https://github.com/hardikrawat/IronCouncil.git
+cd IronCouncil
 
-2. **Create Virtual Environment**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+# Virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-3. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Install Python dependencies
+pip install -r requirements.txt
 
-4. **Configure Environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your API keys
-   ```
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys
 
-5. **Run the Simulation**:
-   ```bash
-   python main.py
-   ```
+# Install frontend dependencies
+cd ui && npm install && cd ..
+```
 
 ---
 
-## 🕹️ Usage
+## Usage
 
-### Starting a Session
+### Option A: Visual Layer (Recommended)
 
-When you run `python main.py`, you'll be guided through LLM provider selection:
+Launch both backend and frontend with a single command:
+
+```bash
+./start_visual_council.sh
+```
+
+This starts:
+- **FastAPI server** on `http://localhost:8000`
+- **React frontend** on `http://localhost:5173`
+
+Open `http://localhost:5173` in your browser.
+
+### Option B: Terminal Mode
+
+```bash
+python main.py
+```
+
+You'll be guided through LLM provider selection:
 
 ```
 --- IRON COUNCIL SETUP WALKTHROUGH ---
@@ -125,100 +161,120 @@ Select your LLM provider (1 or 2):
 
 ### Commands
 
-- **Speak**: Type normally to address the council
-- **End Session**: Type `end session` to trigger the Dreaming Phase
-- **Reset**: Run `python reset.py` to wipe memories and restore factory settings
+| Command | Effect |
+|---------|--------|
+| *Type normally* | Address the council — all agents respond |
+| `end session` | Trigger the Dream Phase — agents reflect and consolidate memory |
+| `python reset.py` | Factory reset — wipe memories and restore default soul states |
 
-### Example Interaction
+### Example Session
 
 ```
 Chairman: We need to discuss the military budget increase.
 
-General Ares: Excellent. A 30% increase is the minimum required for operational readiness.
+General Ares: A 30% increase is the minimum for operational readiness.
 
-Diplomat Dove: Chairman, I urge caution. Such aggressive spending will alarm our neighbors.
+Diplomat Dove: Chairman, I urge caution. Aggressive spending will alarm our neighbors.
 
 Banker Midas: The markets won't tolerate deficit spending. Where's the revenue?
 
-Analyst Logic: Current projections show 12% budget gap. General's proposal is mathematically unsound.
-```
+Analyst Logic: Current projections show a 12% budget gap. The General's proposal
+is mathematically unsound without restructuring.
 
-After the session ends, each agent enters the **Dream Phase**, consolidating memories:
+--- RECONCILIATION (Agent↔Agent) ---
+ > Trust Matrix: {"General Ares": {"Diplomat Dove": -15, "Analyst Logic": 10}, ...}
 
-```
+--- DREAMING PHASE ---
 [General Ares's Diary Entry]
-The Chairman questioned my judgment today. Diplomat Dove undermined me again. 
-I must remember: trust only strength, not words.
+Today was infuriating. Dove stabbed me in the back again with that "caution" nonsense.
+But Logic — cold as he is — backed my position with data. I need to strengthen that
+alliance. The Chairman seems receptive. I must press harder next session.
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### LLM Providers
+### Environment Variables
 
-Edit `.env` to configure your preferred LLM provider:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | — |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `LLM_PROVIDER` | `cloud` or `local` | `cloud` |
+| `LOCAL_LLM_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
+| `LOCAL_MODEL_NAME` | Local model name | `llama3` |
+| `LLM_TIMEOUT` | Request timeout in seconds | `120` |
+| `LOG_LEVEL` | Logging verbosity | `INFO` |
 
-**Cloud APIs** (Recommended for best quality):
-```bash
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-```
+### Agent Soul State
 
-**Local Model** (Privacy-focused, requires Ollama):
-```bash
-LLM_PROVIDER=local
-LOCAL_LLM_URL=http://localhost:11434/api/chat
-LOCAL_MODEL_NAME=llama3
-```
-
-### Agent Customization
-
-Agent personalities are defined in `agents/{agent_name}/soul_state.json`:
+Each agent's personality and state persists in `agents/{name}/soul_state.json`:
 
 ```json
 {
     "name": "General Ares",
     "archetype": "General",
-    "base_model": "gpt-4",
+    "base_model": "mistral-large",
     "core_values": ["Strength", "Hierarchy", "Decisiveness"],
     "dynamic_stats": {
-        "confidence": 85,
-        "paranoia": 10,
+        "confidence": 90,
+        "paranoia": 5,
         "loyalty_to_chairman": 40,
-        "stress_level": 15
+        "stress_level": 15,
+        "energy": 100
     },
     "relationships": {
-        "Diplomat Dove": -40,
-        "Banker Midas": 20
-    }
+        "Diplomat Dove": {
+            "trust_score": -60,
+            "last_interaction_summary": "Dove undermined my position in the last council...",
+            "hidden_agenda": "Undermining peace talks to maintain military dominance"
+        },
+        "Analyst Logic": {
+            "trust_score": 25,
+            "last_interaction_summary": "Logic supported my decision...",
+            "hidden_agenda": null
+        }
+    },
+    "goals": [
+        {
+            "description": "Secure military budget increase",
+            "priority": "strategic",
+            "active": true,
+            "progress": 15
+        }
+    ]
 }
 ```
 
+All stats are clamped (0–100 for stats, -100 to +100 for trust). Goals auto-deactivate at 100% progress.
+
 ---
 
-## 🧪 Testing
-
-Run the test suite:
+## Testing (Still a work in progress!)
 
 ```bash
 pytest tests/ -v
 ```
 
 Test coverage includes:
-- LLM service integration
-- Agent response generation
-- Memory storage and retrieval
-- Physics engine calculations
-- Integrity monitoring
+
+| Test File | Coverage |
+|-----------|----------|
+| `test_physics.py` | Physics engine — stat changes, goal updates, reconciliation, error handling (16 tests) |
+| `test_agent_speak.py` | Agent response generation |
+| `test_integrity.py` | Ego filter validation |
+| `test_llm.py` | LLM service routing |
+| `test_memory.py` | ChromaDB memory storage and retrieval |
+| `test_prompting.py` | Prompt construction |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 IronCouncil/
-├── agents/                    # Agent soul states
+├── agents/                      # Persistent agent soul states
 │   ├── general_ares/
 │   │   └── soul_state.json
 │   ├── diplomat_dove/
@@ -227,71 +283,74 @@ IronCouncil/
 │   │   └── soul_state.json
 │   └── analyst_logic/
 │       └── soul_state.json
-├── core/                      # Core simulation engine
-│   ├── agent.py              # IronAgent class
-│   ├── llm.py                # LLM service
-│   ├── physics.py            # Gamemaster physics
-│   ├── integrity.py          # Ego filter
-│   ├── dream.py              # Dream phase logic
-│   └── schema.py             # Data models
-├── memory/                    # Memory system
-│   └── store.py              # ChromaDB integration
-├── tests/                     # Test suite
-├── docs/                      # Documentation
-├── main.py                    # Entry point
-├── reset.py                   # Factory reset utility
-├── requirements.txt           # Dependencies
-└── .env.example              # Configuration template
+├── core/                        # Simulation engine
+│   ├── schema.py               # Pydantic models (AgentSoul, RelationshipModel, Goal)
+│   ├── agent.py                # IronAgent — soul state, memory, response generation
+│   ├── llm.py                  # Universal LLM service (OpenAI, Anthropic, Ollama)
+│   ├── physics.py              # Gamemaster physics + reconciliation engine
+│   ├── integrity.py            # Ego filter
+│   └── dream.py                # Dream phase, agenda review, interaction summaries
+├── memory/                      # Vector memory system
+│   └── store.py                # ChromaDB subjective memory
+├── ui/                          # Visual layer (React + Tailwind)
+│   └── src/
+│       ├── App.jsx             # Main application — WebSocket, streaming, thread view
+│       └── components/
+│           ├── Post.jsx        # Thread post with spoiler mechanic
+│           ├── Sidebar.jsx     # Agent stats sidebar
+│           └── SyndicateGraphModal.jsx  # Trust network visualization
+├── tests/                       # Test suite
+├── server.py                    # FastAPI + WebSocket backend
+├── main.py                      # Terminal entry point
+├── reset.py                     # Factory reset utility
+├── start_visual_council.sh      # Launch script (backend + frontend)
+├── setup_env.py                 # Interactive environment setup
+├── requirements.txt             # Python dependencies
+└── .env.example                 # Configuration template
 ```
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### "Connection Error" with Local LLM
 
-Make sure Ollama is running:
+Ensure Ollama is running and the model is pulled:
+
 ```bash
 ollama serve
-```
-
-Then verify the model is available:
-```bash
 ollama list
 ollama pull llama3  # if not installed
 ```
 
-### "API Key Not Found"
+### "Read timed out"
 
-Ensure your `.env` file exists and contains valid API keys:
+Increase the timeout in `.env`:
+
 ```bash
-cat .env  # Check file exists
+LLM_TIMEOUT=300
 ```
 
-### ChromaDB Installation Issues
+### ChromaDB Issues
 
-If you encounter ChromaDB installation problems:
 ```bash
 pip install --upgrade chromadb
-# Or use a specific version:
-pip install chromadb==0.4.22
 ```
+
+### Empty Relationship Graph
+
+Ensure the backend is running the latest code. Restart the server and refresh the UI.
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
+## Contributing
 
 ```bash
-# Install development dependencies
-pip install -r requirements.txt
+# Install dev dependencies
 pip install pytest black mypy
 
 # Run tests
-pytest tests/
+pytest tests/ -v
 
 # Format code
 black .
@@ -299,23 +358,19 @@ black .
 
 ---
 
-## 📜 License
+## License
 
-MIT License - see LICENSE file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- Built with OpenAI GPT, Anthropic Claude, and Ollama
-- Vector memory powered by ChromaDB
-- Inspired by emergent AI behaviors and psychological simulation
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-## 📞 Support
+## Acknowledgments
 
-For issues, questions, or feature requests, please open an issue on GitHub.
+- LLM providers: Cloud AI APIs (OpenAI, Anthropic) And local Models via The Ollama!
+- Vector memory: ChromaDB
+- Data validation: Pydantic v2
+- Web backend: FastAPI + Uvicorn
+- Frontend: React + Vite + Tailwind CSS
 
 ---
 

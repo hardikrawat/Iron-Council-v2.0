@@ -11,7 +11,38 @@
         "confidence": 100,
         "paranoia": 0,
         "loyalty_to_chairman": 100,
-        "stress_level": 0
+        "stress_level": 0,
+        "energy": 100
     },
-    "relationships": {}
+    "relationships": {
+        "General Ares": {
+            "trust_score": -10,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        },
+        "Diplomat Dove": {
+            "trust_score": 10,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        },
+        "Banker Midas": {
+            "trust_score": 0,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        }
+    },
+    "goals": [
+        {
+            "description": "Achieve full data transparency across all departments",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Audit military spending claims",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }

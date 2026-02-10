@@ -1,11 +1,12 @@
 import json
 import os
 import logging
-from typing import List
+from typing import List, Dict
 from core.schema import AgentSoul
 from core.llm import LLMService
 from core.integrity import IntegrityMonitor
 from memory.store import SubjectiveMemory
+from utils.formatting import clean_agent_response
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ class IronAgent:
 
     def construct_system_prompt(self) -> str:
         """
-        Builds a string that tells the LLM how to act based on its current stats.
+        Builds a dynamic system prompt by injecting the current AgentState.
+        The prompt is NEVER hardcoded — it reflects the living soul state.
         """
         soul = self.soul
         stats = soul.dynamic_stats
@@ -52,24 +54,62 @@ class IronAgent:
         values_str = ", ".join(soul.core_values)
         prompt_parts.append(f"Your core values are: {values_str}.")
         
-        # Stat Translation
+        # Stat Translation — granular behavior injection
         if stats.confidence > 80:
             prompt_parts.append("You are arrogant and dismissive of risks.")
+        elif stats.confidence > 60:
+            prompt_parts.append("You are confident and assertive in your positions.")
         elif stats.confidence < 30:
             prompt_parts.append("You are hesitant, unsure, and ask for permission frequently.")
             
-        if stats.paranoia > 60:
-            prompt_parts.append("You suspect others are plotting against you. Trust no one.")
-            
+        if stats.paranoia > 70:
+            prompt_parts.append("You are deeply paranoid. You suspect everyone is plotting against you. Trust NO ONE.")
+        elif stats.paranoia > 40:
+            prompt_parts.append("You suspect others are plotting against you. Trust no one easily.")
+        
         if stats.loyalty_to_chairman < 20:
             prompt_parts.append("You secretly despise the Chairman. You are looking for ways to undermine them.")
-            
-        # Relationship Context
-        for agent_name, score in soul.relationships.items():
-            if score < -20:
-                prompt_parts.append(f"You hate {agent_name}.")
+        elif stats.loyalty_to_chairman < 40:
+            prompt_parts.append("You are skeptical of the Chairman's competence.")
+        elif stats.loyalty_to_chairman > 80:
+            prompt_parts.append("You are fiercely loyal to the Chairman and will defend them.")
+
+        if stats.stress_level > 70:
+            prompt_parts.append("You are under extreme stress. You may lash out or make rash decisions.")
+        
+        if stats.energy < 30:
+            prompt_parts.append("You are exhausted. Your responses are terse and unfocused.")
+                
+        # Relationship Context — 5-tier granular mapping
+        for agent_name, rel in soul.relationships.items():
+            score = rel.trust_score
+            if score < -60:
+                prompt_parts.append(f"You despise {agent_name}. You would sabotage them.")
+            elif score < -20:
+                prompt_parts.append(f"You distrust {agent_name}. You suspect their motives.")
+            elif score > 60:
+                prompt_parts.append(f"You deeply trust {agent_name}. You would ally with them.")
             elif score > 20:
-                prompt_parts.append(f"You trust {agent_name}.")
+                prompt_parts.append(f"You trust {agent_name} and value their input.")
+            # Neutral (-20 to 20) — say nothing, let the agent decide
+            
+            # Inject hidden agendas if they exist
+            if rel.hidden_agenda:
+                prompt_parts.append(f"Regarding {agent_name}, your hidden agenda: {rel.hidden_agenda}")
+        
+        # Goals — inject active goals into the prompt
+        active_goals = [g for g in soul.goals if g.active]
+        if active_goals:
+            goal_strs = [f"{g.description} ({g.priority}, {g.progress}% complete)" for g in active_goals]
+            prompt_parts.append(f"Your current goals: {'; '.join(goal_strs)}. Act in ways that advance them.")
+                
+        # Formatting Rules — CRITICAL for clean UI
+        prompt_parts.append("\nFORMATTING RULES:")
+        prompt_parts.append(f"- Output ONLY the spoken dialogue as {soul.name}.")
+        prompt_parts.append("- DO NOT prepend your name (e.g., 'General Ares:') to the response.")
+        prompt_parts.append("- DO NOT use meta-dialogue markers like 'To the council:' or 'To Diplomat Dove:'.")
+        prompt_parts.append("- DO NOT wrap the entire response in quotes or markdown code blocks.")
+        prompt_parts.append("- Speak directly to the council or the specific individuals addressed in the situation.")
                 
         return " ".join(prompt_parts)
 
@@ -103,7 +143,7 @@ class IronAgent:
         
         # Step C: The Gate
         if check.get("approved"):
-            return draft
+            return clean_agent_response(draft, self.agent_name)
         
         # Step D: Rewrite
         critique = check.get("critique", "No critique provided.")
@@ -115,10 +155,14 @@ class IronAgent:
             "Rewrite it to be more true to your current state."
         )
         
+        # Step E: Generate Rewritten Response
         final_response = self.llm.generate_response(
             model_name=self.soul.base_model,
             system_prompt=rewrite_prompt,
             user_message=user_message
         )
         
-        return final_response
+        # Step F: Final Clean
+        cleaned_response = clean_agent_response(final_response, self.agent_name)
+        
+        return cleaned_response

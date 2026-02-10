@@ -11,10 +11,38 @@
         "confidence": 90,
         "paranoia": 60,
         "loyalty_to_chairman": 20,
-        "stress_level": 50
+        "stress_level": 50,
+        "energy": 100
     },
     "relationships": {
-        "General Ares": 20,
-        "Diplomat Dove": 20
-    }
+        "General Ares": {
+            "trust_score": 20,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        },
+        "Diplomat Dove": {
+            "trust_score": 20,
+            "last_interaction_summary": "",
+            "hidden_agenda": null
+        },
+        "Analyst Logic": {
+            "trust_score": 5,
+            "last_interaction_summary": "",
+            "hidden_agenda": "Leveraging data for financial advantage"
+        }
+    },
+    "goals": [
+        {
+            "description": "Maximize treasury reserves",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Secure exclusive trade deal",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }

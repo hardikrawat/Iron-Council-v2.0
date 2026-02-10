@@ -13,6 +13,11 @@ requests>=2.31.0           # HTTP library for local LLM (Ollama)
 python-dotenv>=1.0.0       # Environment variable management
 colorama>=0.4.6            # Terminal color support (optional)
 
+# --- Web Backend (Visual Layer) ---
+fastapi>=0.128.0           # ASGI web framework
+uvicorn>=0.40.0            # ASGI server
+websockets>=16.0           # WebSocket support for FastAPI
+
 # --- Development & Testing (Optional) ---
 # Uncomment to install development dependencies
 # pytest>=7.4.0            # Testing framework
