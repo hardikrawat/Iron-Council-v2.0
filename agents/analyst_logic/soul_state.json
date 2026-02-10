@@ -8,9 +8,9 @@
         "Efficiency"
     ],
     "dynamic_stats": {
-        "confidence": 100,
-        "paranoia": 0,
-        "loyalty_to_chairman": 100,
+        "confidence": 90,
+        "paranoia": 20,
+        "loyalty_to_chairman": 95,
         "stress_level": 0
     },
     "relationships": {}

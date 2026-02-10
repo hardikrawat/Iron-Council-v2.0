@@ -48,4 +48,8 @@ class SubjectiveMemory:
         )
         
         # Return the list of documents found
-        return results["documents"][0] if results["documents"] else []
+        docs = results["documents"]
+        if docs and docs[0]:
+            # Ensure elements are strings
+            return [str(d) for d in docs[0]]
+        return []

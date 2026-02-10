@@ -8,9 +8,9 @@
         "Nuance"
     ],
     "dynamic_stats": {
-        "confidence": 60,
-        "paranoia": 40,
-        "loyalty_to_chairman": 80,
+        "confidence": 50,
+        "paranoia": 60,
+        "loyalty_to_chairman": 65,
         "stress_level": 10
     },
     "relationships": {

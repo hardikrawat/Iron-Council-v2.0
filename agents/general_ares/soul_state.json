@@ -8,9 +8,9 @@
         "Decisiveness"
     ],
     "dynamic_stats": {
-        "confidence": 85,
-        "paranoia": 10,
-        "loyalty_to_chairman": 40,
+        "confidence": 75,
+        "paranoia": 35,
+        "loyalty_to_chairman": 25,
         "stress_level": 15
     },
     "relationships": {

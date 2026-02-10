@@ -1,0 +1,243 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-claw-bg text-black antialiased;
+    font-family: Arial, Helvetica, sans-serif;
+    /* System Stack for raw feel */
+  }
+
+  /* DREAM MODE - "SYSTEM TWILIGHT" */
+  body {
+    transition: background-color 3s ease-in-out, filter 3s ease-in-out;
+  }
+
+  body.dream-mode {
+    background-color: #1e1b4b !important;
+    /* Deep Indigo/Slate */
+  }
+
+  /* Dim existing content in dream mode */
+  body.dream-mode .post-container {
+    opacity: 0.5;
+    filter: grayscale(0.6);
+    transition: opacity 3s ease, filter 3s ease;
+  }
+}
+
+/* DREAM CARD - "PSYCH REPORT" */
+.dream-card {
+  background-color: #ffffff;
+  border: 1px solid #312e81;
+  /* Indigo-900 */
+  box-shadow: 2px 2px 0px 0px rgba(49, 46, 129, 1);
+  /* Indigo Shadow */
+  color: #1e1b4b;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  font-family: 'Times New Roman', serif;
+  /* Narrative feel */
+  position: relative;
+  animation: slideIn 0.5s ease-out;
+}
+
+.dream-card-header {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #4338ca;
+  /* Indigo-700 */
+  border-bottom: 1px solid #e0e7ff;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dream-pulse {
+  width: 8px;
+  height: 8px;
+  background-color: #6366f1;
+  border-radius: 50%;
+  animation: pulse-slow 3s infinite;
+}
+
+@keyframes pulse-slow {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* CRT SCANLINE OVERLAY */
+.crt-overlay {
+  /* CHANGED: Reduced alpha from 0.1 to 0.03 */
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%,
+      rgba(0, 0, 0, 0.03) 50%);
+
+  background-size: 100% 4px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.mic-vignette {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.2) 100%);
+  pointer-events: none;
+  z-index: 9998;
+}
+
+
+/* GLITCH / SHAKE ANIMATIONS */
+.glitch-text {
+  animation: glitch 1s linear infinite;
+}
+
+@keyframes glitch {
+
+  2%,
+  64% {
+    transform: translate(2px, 0) skew(0deg);
+  }
+
+  4%,
+  60% {
+    transform: translate(-2px, 0) skew(0deg);
+  }
+
+  62% {
+    transform: translate(0, 0) skew(5deg);
+  }
+}
+
+.shake-hard {
+  animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) infinite;
+}
+
+@keyframes shake {
+
+  10%,
+  90% {
+    transform: translate3d(-1px, 0, 0);
+  }
+
+  20%,
+  80% {
+    transform: translate3d(2px, 0, 0);
+  }
+
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-4px, 0, 0);
+  }
+
+  40%,
+  60% {
+    transform: translate3d(4px, 0, 0);
+  }
+}
+
+/* FLIP CARD STYLES */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+}
+
+.flip-card-front,
+.flip-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.flip-card-back {
+  transform: rotateY(180deg);
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+/* HOLOGRAM / SYNDICATE GRAPH STYLES */
+@keyframes hologram-flicker {
+  0% {
+    opacity: 0.95;
+  }
+
+  3% {
+    opacity: 0.8;
+  }
+
+  6% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0.95;
+  }
+}
+
+.animate-hologram-flicker {
+  animation: hologram-flicker 4s infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}

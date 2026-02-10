@@ -8,9 +8,9 @@
         "Leverage"
     ],
     "dynamic_stats": {
-        "confidence": 90,
-        "paranoia": 60,
-        "loyalty_to_chairman": 20,
+        "confidence": 80,
+        "paranoia": 75,
+        "loyalty_to_chairman": 0,
         "stress_level": 50
     },
     "relationships": {
