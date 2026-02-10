@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 
-# The Default Data: Exact starting JSON for all 4 agents
+# The Default Data: Exact starting JSON for all 4 agents (BDI Schema)
 DEFAULT_STATES = {
     "general_ares": {
         "name": "General Ares",
@@ -13,13 +13,18 @@ DEFAULT_STATES = {
             "confidence": 85,
             "paranoia": 10,
             "loyalty_to_chairman": 40,
-            "stress_level": 15
+            "stress_level": 15,
+            "energy": 100
         },
         "relationships": {
-            "Diplomat Dove": -40,
-            "Banker Midas": 20,
-            "Analyst Logic": 0
-        }
+            "Diplomat Dove": { "trust_score": -40, "last_interaction_summary": "", "hidden_agenda": "Undermining peace talks to maintain military dominance" },
+            "Banker Midas": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
+            "Analyst Logic": { "trust_score": 0, "last_interaction_summary": "", "hidden_agenda": None }
+        },
+        "goals": [
+            { "description": "Secure military budget increase", "priority": "strategic", "active": True, "progress": 0 },
+            { "description": "Undermine Dove's peace initiative", "priority": "tactical", "active": True, "progress": 0 }
+        ]
     },
     "diplomat_dove": {
         "name": "Diplomat Dove",
@@ -30,12 +35,18 @@ DEFAULT_STATES = {
             "confidence": 60,
             "paranoia": 40,
             "loyalty_to_chairman": 80,
-            "stress_level": 10
+            "stress_level": 10,
+            "energy": 100
         },
         "relationships": {
-            "General Ares": -30,
-            "Banker Midas": 10
-        }
+            "General Ares": { "trust_score": -30, "last_interaction_summary": "", "hidden_agenda": "Building coalition to limit military spending" },
+            "Banker Midas": { "trust_score": 10, "last_interaction_summary": "", "hidden_agenda": None },
+            "Analyst Logic": { "trust_score": 15, "last_interaction_summary": "", "hidden_agenda": None }
+        },
+        "goals": [
+            { "description": "Broker a lasting peace agreement", "priority": "strategic", "active": True, "progress": 0 },
+            { "description": "Win Analyst Logic's support for diplomacy", "priority": "tactical", "active": True, "progress": 0 }
+        ]
     },
     "banker_midas": {
         "name": "Banker Midas",
@@ -46,12 +57,18 @@ DEFAULT_STATES = {
             "confidence": 90,
             "paranoia": 60,
             "loyalty_to_chairman": 20,
-            "stress_level": 50
+            "stress_level": 50,
+            "energy": 100
         },
         "relationships": {
-            "General Ares": 20,
-            "Diplomat Dove": 20
-        }
+            "General Ares": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
+            "Diplomat Dove": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
+            "Analyst Logic": { "trust_score": 5, "last_interaction_summary": "", "hidden_agenda": "Leveraging data for financial advantage" }
+        },
+        "goals": [
+            { "description": "Maximize treasury reserves", "priority": "strategic", "active": True, "progress": 0 },
+            { "description": "Secure exclusive trade deal", "priority": "tactical", "active": True, "progress": 0 }
+        ]
     },
     "analyst_logic": {
         "name": "Analyst Logic",
@@ -62,9 +79,18 @@ DEFAULT_STATES = {
             "confidence": 100,
             "paranoia": 0,
             "loyalty_to_chairman": 100,
-            "stress_level": 0
+            "stress_level": 0,
+            "energy": 100
         },
-        "relationships": {}
+        "relationships": {
+            "General Ares": { "trust_score": -10, "last_interaction_summary": "", "hidden_agenda": None },
+            "Diplomat Dove": { "trust_score": 10, "last_interaction_summary": "", "hidden_agenda": None },
+            "Banker Midas": { "trust_score": 0, "last_interaction_summary": "", "hidden_agenda": None }
+        },
+        "goals": [
+            { "description": "Achieve full data transparency across all departments", "priority": "strategic", "active": True, "progress": 0 },
+            { "description": "Audit military spending claims", "priority": "tactical", "active": True, "progress": 0 }
+        ]
     }
 }
 

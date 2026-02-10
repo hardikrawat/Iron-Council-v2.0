@@ -9,12 +9,40 @@
     ],
     "dynamic_stats": {
         "confidence": 50,
-        "paranoia": 60,
-        "loyalty_to_chairman": 65,
-        "stress_level": 10
+        "paranoia": 70,
+        "loyalty_to_chairman": 70,
+        "stress_level": 10,
+        "energy": 100
     },
     "relationships": {
-        "General Ares": -30,
-        "Banker Midas": 10
-    }
+        "General Ares": {
+            "trust_score": -65,
+            "last_interaction_summary": "d little to alleviate my growing suspicion toward General Ares, who consistently opposes my initiatives and seeks to undermine them at every turn. The",
+            "hidden_agenda": "Undermine General Ares's influence by highlighting their failures in diplomacy and promoting a more peaceful approach to conflict resolution."
+        },
+        "Banker Midas": {
+            "trust_score": 30,
+            "last_interaction_summary": "and the city's economic stability.\n\nSurprisingly, Banker Midas eventually agreed with me and voted in favor of Option A, confirming that he sees value",
+            "hidden_agenda": null
+        },
+        "Analyst Logic": {
+            "trust_score": -10,
+            "last_interaction_summary": "ouncil. Despite the growing hostility between us, Analyst Logic's vote aligned with mine, though this did little to mend our fractured relationship. T",
+            "hidden_agenda": "Undermine Analyst Logic's influence by highlighting their rigid approach as detrimental to fostering peace and cooperation."
+        }
+    },
+    "goals": [
+        {
+            "description": "Broker a lasting peace agreement",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Win Analyst Logic's support for diplomacy",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }

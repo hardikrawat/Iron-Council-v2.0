@@ -1,7 +1,8 @@
 import os
+import asyncio
 from core.agent import IronAgent
 from core.llm import LLMService
-from core.dream import dream_phase
+from core.dream import dream_phase, review_agendas, update_interaction_summaries
 from core.physics import GamemasterPhysics
 from memory.store import SubjectiveMemory
 
@@ -73,6 +74,15 @@ def main():
     
     session_log = []
     
+    # Initialize trust snapshots BEFORE the session loop
+    # This captures the baseline for calculating deltas at dream phase
+    initial_trust_snapshots = {}
+    for agent in agents:
+        initial_trust_snapshots[agent.agent_name] = {
+            name: rel.trust_score
+            for name, rel in agent.soul.relationships.items()
+        }
+    
     print("\n" + "="*40)
     print("--- IRON COUNCIL SESSION START ---")
     print("="*40)
@@ -92,33 +102,62 @@ def main():
             
         session_log.append(f"Chairman: {user_input}")
         
+        all_responses = []  # Collected after ALL speak — for reconciliation
+        
         for agent in agents:
-            # Recall: Before speaking, retrieve relevant memories
+            # Recall
             memories = agent.recall_memories(user_input)
-            
-            # Context Injection: Add retrieved memories to their prompt context
             context_string = ""
             if memories:
                 context_string = "I remember: " + " | ".join(memories)
             
-            # Speak: Generate response with context
+            # Speak
             response = agent.speak(user_input, context=context_string)
             print(f"\n{agent.soul.name}: {response}")
-            
-            # Log the response
             session_log.append(f"{agent.soul.name}: {response}")
             
-            # Physics Engine: Update agent psyche based on interaction
-            print("--- UPDATING PSYCHE ---")
+            # Physics — User ↔ Agent ONLY (stats + goals, NO relationships)
+            print("--- UPDATING PSYCHE (User↔Agent) ---")
+            active_goals = [g.description for g in agent.soul.goals if g.active]
             current_stats = agent.soul.dynamic_stats.model_dump()
-            impact = physics.calculate_impact(agent.agent_name, current_stats, user_input)
+            impact = physics.calculate_impact(
+                agent.agent_name, current_stats, user_input,
+                agent_goals=active_goals
+            )
             
+            # Apply stat changes (User ↔ Agent)
             agent.soul.update_stat('confidence', impact.get('confidence_change', 0))
             agent.soul.update_stat('paranoia', impact.get('paranoia_change', 0))
             agent.soul.update_stat('loyalty_to_chairman', impact.get('loyalty_change', 0))
             
+            # Apply goal progress
+            for goal_desc, delta in impact.get('goal_updates', {}).items():
+                agent.soul.update_goal_progress(goal_desc, delta)
+            completed = agent.soul.check_goal_completion()
+            if completed:
+                print(f"  🎯 GOAL COMPLETED: {', '.join(completed)}")
+            
             agent.save_state()
-            print(f" > {agent.agent_name} Stats: {impact}")
+            print(f" > {agent.agent_name} Impact: {impact}")
+            
+            # Collect for reconciliation
+            all_responses.append({
+                "name": agent.soul.name,
+                "public_text": response
+            })
+        
+        # Reconciliation — Agent ↔ Agent ONLY (trust deltas)
+        print("\n--- RECONCILIATION (Agent↔Agent) ---")
+        agent_core_values = {a.soul.name: a.soul.core_values for a in agents}
+        trust_matrix = physics.reconcile_turn(all_responses, agent_core_values)
+        
+        for agent in agents:
+            deltas = trust_matrix.get(agent.soul.name, {})
+            for target_name, delta in deltas.items():
+                agent.soul.update_relationship(target_name, delta)
+            agent.save_state()
+        
+        print(f" > Trust Matrix: {trust_matrix}")
             
     print("\n" + "="*40)
     print("--- DREAMING PHASE ---")
@@ -126,10 +165,27 @@ def main():
     print("Agents are reflecting on the session...\n")
     
     for agent in agents:
-        diary_entry = dream_phase(agent, session_log)
+        diary_entry = asyncio.run(dream_phase(agent, session_log))
         print(f"[{agent.soul.name}'s Diary Entry]")
         print(diary_entry)
         print("-" * 30 + "\n")
+        
+        # Review agendas based on trust deltas (compare vs INITIAL baseline)
+        snapshot = initial_trust_snapshots.get(agent.agent_name, {})
+        deltas = {}
+        for name, rel in agent.soul.relationships.items():
+            old_score = snapshot.get(name, 0)
+            deltas[name] = rel.trust_score - old_score
+        
+        asyncio.run(review_agendas(agent, deltas))
+        agent.save_state()
+    
+    # Reset trust snapshots after dream phase (for potential next session)
+    for agent in agents:
+        initial_trust_snapshots[agent.agent_name] = {
+            name: rel.trust_score
+            for name, rel in agent.soul.relationships.items()
+        }
 
 if __name__ == "__main__":
     main()

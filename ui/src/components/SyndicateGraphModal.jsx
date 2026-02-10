@@ -29,16 +29,20 @@ const SyndicateGraphModal = ({ isOpen, onClose, agents, focusedAgentId }) => {
             const sourcePos = positions.find(p => p.id === sourceAgent.id);
             if (!sourcePos || !sourceAgent.relationships) return;
 
-            Object.entries(sourceAgent.relationships).forEach(([targetName, score]) => {
+            Object.entries(sourceAgent.relationships).forEach(([targetName, rel]) => {
+                // Support both RelationshipModel objects and raw int scores
+                const score = typeof rel === 'object' ? (rel.trust_score ?? 0) : rel;
                 const targetPos = positions.find(p => p.name === targetName);
 
-                if (targetPos && Math.abs(score) > 10) {
+                if (targetPos && Math.abs(score) > 5) {
+                    const isNeutral = Math.abs(score) <= 5;
                     resultLines.push({
                         x1: sourcePos.x,
                         y1: sourcePos.y,
                         x2: targetPos.x,
                         y2: targetPos.y,
                         score: score,
+                        isNeutral: isNeutral,
                         sourceId: sourceAgent.id,
                         targetName: targetName,
                         key: `${sourceAgent.id}-${targetName}`
@@ -99,21 +103,38 @@ const SyndicateGraphModal = ({ isOpen, onClose, agents, focusedAgentId }) => {
                         {/* Connection Lines */}
                         {lines.map((line) => {
                             const isPositive = line.score > 0;
-                            const color = isPositive ? "#16a34a" : "#dc2626";
+                            const color = line.isNeutral ? "#9ca3af" : (isPositive ? "#16a34a" : "#dc2626");
                             const dimmed = isDimmed('line', line);
+                            const midX = (line.x1 + line.x2) / 2;
+                            const midY = (line.y1 + line.y2) / 2;
 
                             return (
-                                <line
-                                    key={line.key}
-                                    x1={line.x1}
-                                    y1={line.y1}
-                                    x2={line.x2}
-                                    y2={line.y2}
-                                    stroke={color}
-                                    strokeWidth={Math.max(1, Math.abs(line.score) / 25)}
-                                    strokeOpacity={dimmed ? "0.1" : "0.8"}
-                                    strokeLinecap="square"
-                                />
+                                <g key={line.key}>
+                                    <line
+                                        x1={line.x1}
+                                        y1={line.y1}
+                                        x2={line.x2}
+                                        y2={line.y2}
+                                        stroke={color}
+                                        strokeWidth={Math.max(1, Math.abs(line.score) / 25)}
+                                        strokeOpacity={dimmed ? "0.1" : "0.8"}
+                                        strokeLinecap="square"
+                                        strokeDasharray={line.isNeutral ? "4 3" : "none"}
+                                    />
+                                    {!dimmed && (
+                                        <text
+                                            x={midX}
+                                            y={midY - 5}
+                                            textAnchor="middle"
+                                            fill={color}
+                                            fontSize="8"
+                                            fontFamily="Arial, sans-serif"
+                                            opacity="0.7"
+                                        >
+                                            {line.score > 0 ? `+${line.score}` : line.score}
+                                        </text>
+                                    )}
+                                </g>
                             );
                         })}
 
@@ -186,6 +207,10 @@ const SyndicateGraphModal = ({ isOpen, onClose, agents, focusedAgentId }) => {
                     <div className="flex items-center gap-1.5 opacity-80">
                         <div className="w-3 h-3 bg-green-600 border border-green-800"></div>
                         <span>Trust</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 opacity-80">
+                        <div className="w-3 h-3 bg-gray-400 border border-gray-500"></div>
+                        <span>Neutral</span>
                     </div>
                     <div className="flex items-center gap-1.5 opacity-80">
                         <div className="w-3 h-3 bg-red-600 border border-red-800"></div>

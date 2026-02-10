@@ -8,10 +8,41 @@
         "Efficiency"
     ],
     "dynamic_stats": {
-        "confidence": 90,
-        "paranoia": 20,
+        "confidence": 95,
+        "paranoia": 10,
         "loyalty_to_chairman": 95,
-        "stress_level": 0
+        "stress_level": 0,
+        "energy": 100
     },
-    "relationships": {}
+    "relationships": {
+        "General Ares": {
+            "trust_score": 15,
+            "last_interaction_summary": "isive action against the Chimera pathogen threat. General Ares supported my stance to neutralize the virus completely, demonstrating growing alignment",
+            "hidden_agenda": null
+        },
+        "Diplomat Dove": {
+            "trust_score": -15,
+            "last_interaction_summary": "le room for cooperation or mutual understanding.\n\nDiplomat Dove proposed an intermediary solution to balance both security and economic interests, a c",
+            "hidden_agenda": "Undermine Diplomat Dove's credibility by exposing inconsistencies in their reports to restore logical and efficient decision-making processes."
+        },
+        "Banker Midas": {
+            "trust_score": -45,
+            "last_interaction_summary": "s resonated well with our mutual goals.\n\nHowever, Banker Midas vehemently opposed my recommendation, voting for a more cautious approach that prioriti",
+            "hidden_agenda": "Undermine Banker Midas's credibility by exposing inconsistencies in their financial reports to restore trust in analytical integrity."
+        }
+    },
+    "goals": [
+        {
+            "description": "Achieve full data transparency across all departments",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Audit military spending claims",
+            "priority": "tactical",
+            "active": true,
+            "progress": 10
+        }
+    ]
 }

@@ -8,14 +8,41 @@
         "Decisiveness"
     ],
     "dynamic_stats": {
-        "confidence": 75,
-        "paranoia": 35,
-        "loyalty_to_chairman": 25,
-        "stress_level": 15
+        "confidence": 95,
+        "paranoia": 20,
+        "loyalty_to_chairman": 35,
+        "stress_level": 15,
+        "energy": 100
     },
     "relationships": {
-        "Diplomat Dove": -40,
-        "Banker Midas": 20,
-        "Analyst Logic": 0
-    }
+        "Diplomat Dove": {
+            "trust_score": -70,
+            "last_interaction_summary": "hat he views me as an obstacle to his goals.\n\nThe Diplomat Dove attempted to mediate by proposing a hybrid solution but failed to sway me from my stan",
+            "hidden_agenda": "Undermine Diplomat Dove's influence by highlighting their failures in public councils to assert military supremacy."
+        },
+        "Banker Midas": {
+            "trust_score": -20,
+            "last_interaction_summary": "",
+            "hidden_agenda": "Undermine Banker Midas's influence by highlighting his weaknesses in battle strategy meetings."
+        },
+        "Analyst Logic": {
+            "trust_score": 25,
+            "last_interaction_summary": "th me have plummeted further today.\n\nIn contrast, Analyst Logic supported my decision, indicating growing alliance between us as we share a common und",
+            "hidden_agenda": null
+        }
+    },
+    "goals": [
+        {
+            "description": "Secure military budget increase",
+            "priority": "strategic",
+            "active": true,
+            "progress": 15
+        },
+        {
+            "description": "Undermine Dove's peace initiative",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }

@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import BoardHeader from './components/BoardHeader';
+import Sidebar from './components/Sidebar';
 import Post from './components/Post';
-import ThreadActivityBar from './components/ThreadActivityBar';
 import SyndicateGraphModal from './components/SyndicateGraphModal';
 
 function App() {
@@ -16,7 +15,7 @@ function App() {
     const [activeAgents, setActiveAgents] = useState({});
     const [showGraphModal, setShowGraphModal] = useState(false);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
-
+    const [systemLogs, setSystemLogs] = useState([]);
 
     useEffect(() => {
         // Connect to WebSocket
@@ -32,8 +31,12 @@ function App() {
             const msg = JSON.parse(event.data);
             if (msg.type === 'init') {
                 setAgents(msg.data);
+            } else if (msg.type === 'relationship_update') {
+                // Update relationships specifically 
+                setAgents(prev => prev.map(a => a.id === msg.agent_id ? { ...a, relationships: msg.relationships } : a));
             } else if (msg.type === 'system_log') {
                 const content = msg.content;
+                setSystemLogs(prev => [...prev.slice(-1499), content]);
                 const match = content.match(/\[(.*?)\] \[(.*?)\] > (.*)/);
                 if (match) {
                     const module = match[2];
@@ -41,7 +44,7 @@ function App() {
 
                     if (module === 'SIMULATION') {
                         if (message.includes("Processing turn") || message.includes("Entering dream phase")) {
-                            setStatusText("");
+                            setStatusText(message.toUpperCase());
                             setActiveAgents({});
                         } else if (message.includes("Turn complete") || message.includes("Session finalized")) {
                             setStatusText("System: READY // Waiting for command...");
@@ -72,7 +75,7 @@ function App() {
                 // Legacy / fallback if non-streaming
                 const agentData = msg.data;
                 setPosts(prev => [...prev, { type: 'agent_post', data: agentData }]);
-                setAgents(prev => prev.map(a => a.id === agentData.id ? { ...a, stats: agentData.stats } : a));
+                setAgents(prev => prev.map(a => a.id === agentData.id ? { ...a, stats: agentData.stats, relationships: agentData.relationships } : a));
 
             } else if (msg.type === 'stream_start') {
                 if (msg.is_dream) {
@@ -189,13 +192,20 @@ function App() {
     };
 
     return (
-        <div className="min-h-screen bg-claw-bg font-sans text-sm selection:bg-red-900 selection:text-white pb-24 relative">
+        <div className="flex min-h-screen bg-claw-bg font-sans text-sm selection:bg-red-900 selection:text-white relative overflow-hidden">
             {/* CRT & Vignette Overlays */}
             <div className="crt-overlay"></div>
             <div className="mic-vignette"></div>
 
-            {/* Top Bar: Board List / Stats */}
-            <BoardHeader agents={agents} onOpenGraph={handleOpenGraph} />
+            {/* NEW: Left Sidebar */}
+            <Sidebar
+                agents={agents}
+                posts={posts}
+                statusText={statusText}
+                activeAgents={activeAgents}
+                systemLogs={systemLogs}
+                onOpenGraph={handleOpenGraph}
+            />
 
             {/* Modals */}
             <SyndicateGraphModal
@@ -206,79 +216,48 @@ function App() {
             />
 
             {/* Main Content Area */}
-            <div className="max-w-4xl mx-auto mt-2 p-2 sm:p-4">
+            <div className="flex-1 flex flex-col h-screen relative">
 
-                {/* Thread Title */}
-                <div className="text-xl font-bold text-[#af0a0f] mb-4 text-center tracking-tight">
-                    /ic/ - Iron Council Simulation <span className="text-xs font-normal text-gray-500">[Thread #849102]</span>
+                {/* Scrollable Thread View */}
+                <div className="flex-1 overflow-y-auto p-4 pb-32 scrollbar-hide">
+                    <div className="max-w-3xl mx-auto">
+                        {/* Thread Title */}
+                        <div className="text-xl font-bold text-[#af0a0f] mb-6 text-center tracking-tight border-b-2 border-[#af0a0f] pb-2">
+                            /ic/ - Iron Council Simulation <span className="text-xs font-normal text-gray-500">[Thread #849102]</span>
+                        </div>
+
+                        {/* Posts Container */}
+                        <div className="space-y-4 post-container">
+                            {posts.map((post, idx) => {
+                                // Skip dream posts in the main chat as they are now in the sidebar
+                                if (post.type === 'dream' || post.type === 'dream_stream') return null;
+                                return <Post key={idx} post={post} />;
+                            })}
+                            <div ref={bottomRef} />
+                        </div>
+                    </div>
                 </div>
 
-                {/* Posts Container */}
-                <div className="space-y-3 post-container">
-                    {posts.map((post, idx) => {
-                        if (post.type === 'dream') {
-                            return (
-                                <div key={idx} className="dream-card">
-                                    <div className="dream-card-header">
-                                        <span>&gt;&gt; SUBCONSCIOUS_DUMP // BATCH_LOG</span>
-                                        <div className="dream-pulse"></div>
-                                    </div>
-                                    {post.data.map((entry, i) => (
-                                        <div key={i} className="mb-4 last:mb-0">
-                                            <div className="font-bold text-xs uppercase tracking-wider text-indigo-900 mb-1">{entry.agent_name}</div>
-                                            <div className="text-base leading-relaxed text-gray-800 italic border-l-2 border-indigo-100 pl-3">
-                                                "{entry.entry}"
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        }
-                        if (post.type === 'dream_stream') {
-                            return (
-                                <div key={idx} className="dream-card">
-                                    <div className="dream-card-header">
-                                        <span>&gt;&gt; PSYCH_REPORT // {post.agentName.toUpperCase()}</span>
-                                        {post.isStreaming && <div className="dream-pulse"></div>}
-                                    </div>
-                                    <div className="text-base leading-relaxed text-gray-800 italic pl-2">
-                                        {post.content}
-                                    </div>
-                                </div>
-                            );
-                        }
-                        return <Post key={idx} post={post} />;
-                    })}
-
-                    <div ref={bottomRef} />
-                </div>
-            </div>
-
-            {/* Footer Container: Activity Bar + Input */}
-            <div className="fixed bottom-0 left-0 w-full z-40">
-                {/* 1. Activity Bar */}
-                <ThreadActivityBar statusText={statusText} activeAgents={activeAgents} />
-
-
-                {/* 2. Input Bar */}
-                <div className="bg-[#d6daf0] border-t border-claw-border p-2 shadow-lg">
-                    <div className="max-w-4xl mx-auto flex gap-2">
-                        <div className="text-[10px] self-center hidden sm:block font-bold text-gray-600 uppercase tracking-widest">
-                            [CHAIRMAN]
+                {/* Fixed Input Bar at Bottom */}
+                <div className="absolute bottom-0 left-0 w-full bg-[#d6daf0] border-t-2 border-claw-border p-3 shadow-2xl z-40">
+                    <div className="max-w-3xl mx-auto flex gap-3">
+                        <div className="text-[11px] self-center hidden sm:flex items-center gap-1 font-bold text-[#af0a0f] uppercase tracking-widest whitespace-nowrap">
+                            <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
+                            CHAIRMAN
                         </div>
                         <form onSubmit={handleSubmit} className="flex-1 flex gap-2">
                             <input
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
-                                className="flex-1 border border-gray-600 p-1 px-2 text-[13px] focus:border-blue-900 outline-none shadow-inner font-sans rounded-none"
-                                placeholder={connected ? ">> Issue command" : "Connecting..."}
+                                className="flex-1 border-2 border-claw-border p-2 text-[14px] focus:ring-2 focus:ring-red-500 outline-none shadow-sharp font-mono bg-white rounded-none"
+                                placeholder={connected ? ">> BROADCAST TO THE COUNCIL_" : "ESTABLISHING UPLINK..."}
                                 disabled={!connected}
                             />
                             <button
                                 type="submit"
                                 disabled={!connected}
-                                className="px-4 py-1 bg-[#EEF2FF] border border-gray-600 font-bold hover:bg-white disabled:opacity-50 text-[10px] uppercase tracking-wide shadow-sharp"
+                                className="px-6 py-2 bg-[#af0a0f] text-white border-2 border-black font-bold hover:bg-red-800 disabled:opacity-50 text-[11px] uppercase tracking-wider shadow-sharp active:shadow-none translate-y-[-2px] active:translate-y-[0px] transition-all"
                             >
                                 Post
                             </button>

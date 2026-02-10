@@ -29,7 +29,7 @@ from core.llm import LLMService
 from core.physics import GamemasterPhysics
 from memory.store import SubjectiveMemory
 from memory.store import SubjectiveMemory
-from core.dream import dream_phase, dream_phase_stream
+from core.dream import dream_phase, dream_phase_stream, review_agendas, update_interaction_summaries
 
 
 # Setup logging
@@ -91,8 +91,7 @@ class VisualIronAgent(IronAgent):
             "public_text": public_response,
             "hidden_text": hidden_thought,
             "stats": self.soul.dynamic_stats.model_dump(),
-            "relationships": self.soul.relationships,
-            # Frontend relies on hardcoded tripcodes, but we can send a hint or just name
+            "relationships": self.soul.get_serializable_relationships(),
         }
 
 # --- SIMULATION ENGINE ---
@@ -105,28 +104,41 @@ class CouncilSimulation:
         agent_names = ["general_ares", "diplomat_dove", "banker_midas", "analyst_logic"]
         self.agents = [VisualIronAgent(name) for name in agent_names]
         self.session_log = []
+        self.initial_trust_snapshots = {}
+        # Capture initial trust baseline
+        self.snapshot_trust()
+
+
+    def snapshot_trust(self):
+        """
+        Captures current trust scores as baseline for next session.
+        """
+        self.initial_trust_snapshots = {}
+        for agent in self.agents:
+            self.initial_trust_snapshots[agent.agent_name] = {
+                name: rel.trust_score
+                for name, rel in agent.soul.relationships.items()
+            }
 
     def processed_turn(self, user_input: str) -> List[Dict]:
         """
-        Runs a full turn of the council:
+        Runs a full turn of the council (DOMAIN-SEPARATED):
         1. Log User Input
-        2. Agents Recall & Speak (Parallel or Serial)
-        3. Physics Update
-        4. Return updates
+        2. Agents Recall & Speak (Sequential)
+        3. Physics: User ↔ Agent (Stats + Goals ONLY)
+        4. Reconciliation: Agent ↔ Agent (Relationship Trust ONLY)
+        5. Return updates
         """
         self.session_log.append(f"Chairman: {user_input}")
         
-        # Log start of turn
         SystemLogger.log_sync("SIMULATION", f"Processing turn for input: {user_input[:20]}...", "INFO")
         
         turn_updates = []
+        all_responses = []  # Collected AFTER all speak — for reconciliation
 
-        # In a real async server, we might want to run these concurrently, 
-        # but IronAgent is synchronous (requests). We'll keep it serial for safety/simplicity first.
         for agent in self.agents:
             # A. Recall
             SystemLogger.log_sync(agent.agent_name.upper(), "Accessing vector memory...", "DEBUG")
-            
             memories = agent.recall_memories(user_input)
             context_string = ""
             if memories:
@@ -134,44 +146,66 @@ class CouncilSimulation:
                 SystemLogger.log_sync(agent.agent_name.upper(), f"Retrieved {len(memories)} memory fragments.", "INFO")
 
             # B. Speak (Visual)
-            # This runs the LLM generation + Integrity Check
             SystemLogger.log_sync(agent.agent_name.upper(), "Generating response...", "DEBUG")
-            
             response_data = agent.speak_visual(user_input, context=context_string)
             
-            # Log the thought process
             hidden = response_data['hidden_text']
             if len(hidden) > 40:
                 hidden = hidden[:40] + "..."
             SystemLogger.log_sync(agent.agent_name.upper(), f"Draft: {hidden}", "DEBUG")
-            
-            # Log
             self.session_log.append(f"{agent.soul.name}: {response_data['public_text']}")
 
-            # C. Physics
-            # We calculate impact based on the public response/interaction
-            SystemLogger.log_sync("PHYSICS_ENGINE", f"Calculating impact for {agent.soul.name}...", "DEBUG")
-            
+            # C. Physics — User ↔ Agent ONLY (stats + goals, NO relationships)
+            SystemLogger.log_sync("PHYSICS_ENGINE", f"Calculating User↔Agent impact for {agent.soul.name}...", "DEBUG")
+            active_goals = [g.description for g in agent.soul.goals if g.active]
             current_stats = agent.soul.dynamic_stats.model_dump()
-            impact = self.physics.calculate_impact(agent.agent_name, current_stats, user_input)
+            impact = self.physics.calculate_impact(
+                agent.agent_name, current_stats, user_input,
+                agent_goals=active_goals
+            )
             
-            # Apply physics
+            # Apply stat changes (User ↔ Agent)
             agent.soul.update_stat('confidence', impact.get('confidence_change', 0))
             agent.soul.update_stat('paranoia', impact.get('paranoia_change', 0))
             agent.soul.update_stat('loyalty_to_chairman', impact.get('loyalty_change', 0))
-            agent.save_state()
-
-            if impact.get('critical_event'):
-                 SystemLogger.log_sync("PHYSICS_ENGINE", f"CRITICAL EVENT: {impact.get('reasoning')}", "CRITICAL")
-            else:
-                 SystemLogger.log_sync("PHYSICS_ENGINE", "Stats updated successfully.", "INFO")
-
-            # Add updated stats to response data
-            response_data['stats'] = agent.soul.dynamic_stats.model_dump()
-            response_data['impact'] = impact # Optional: show what changed
             
+            # Apply goal progress
+            for goal_desc, delta in impact.get('goal_updates', {}).items():
+                agent.soul.update_goal_progress(goal_desc, delta)
+            completed = agent.soul.check_goal_completion()
+            if completed:
+                SystemLogger.log_sync("PHYSICS_ENGINE", f"GOAL COMPLETED: {', '.join(completed)}", "CRITICAL")
+            
+            agent.save_state()
+            SystemLogger.log_sync("PHYSICS_ENGINE", "Stats + goals updated.", "INFO")
+
+            response_data['stats'] = agent.soul.dynamic_stats.model_dump()
+            response_data['relationships'] = agent.soul.get_serializable_relationships()
+            response_data['impact'] = impact
             turn_updates.append(response_data)
+            
+            # Collect for reconciliation
+            all_responses.append({
+                "name": agent.soul.name,
+                "public_text": response_data['public_text']
+            })
+
+        # D. Reconciliation — Agent ↔ Agent ONLY (trust deltas)
+        SystemLogger.log_sync("RECONCILIATION", "Analyzing inter-agent dynamics...", "INFO")
+        agent_core_values = {
+            a.soul.name: a.soul.core_values for a in self.agents
+        }
+        trust_matrix = self.physics.reconcile_turn(all_responses, agent_core_values)
         
+        for agent in self.agents:
+            deltas = trust_matrix.get(agent.soul.name, {})
+            for target_name, delta in deltas.items():
+                if target_name == "vote" or not isinstance(delta, (int, float)):
+                    continue  # Phase 2.6: skip vote metadata
+                agent.soul.update_relationship(target_name, delta)
+            agent.save_state()
+        
+        SystemLogger.log_sync("RECONCILIATION", f"Trust matrix applied: {trust_matrix}", "INFO")
         SystemLogger.log_sync("SIMULATION", "Turn complete. Awaiting next input.", "INFO")
         return turn_updates
 
@@ -254,16 +288,26 @@ async def websocket_endpoint(websocket: WebSocket):
             {
                 "id": a.agent_name,
                 "name": a.soul.name,
-                "id": a.agent_name,
-                "name": a.soul.name,
                 "stats": a.soul.dynamic_stats.model_dump(),
-                "relationships": a.soul.relationships
+                "relationships": a.soul.get_serializable_relationships(),
+                # NEW: Full Soul Dump for Research Export
+                "full_soul": a.soul.model_dump() 
             }
             for a in simulation.agents
         ]
         logger.info(f"Sending initial state for {len(initial_state)} agents to {websocket.client}")
         await websocket.send_json({"type": "init", "data": initial_state})
         
+        # NEW: Send Buffered System Logs for Research Export
+        if SystemLogger.log_buffer:
+            logger.info(f"Sending {len(SystemLogger.log_buffer)} buffered system logs to {websocket.client}")
+            for log_msg in SystemLogger.log_buffer:
+                await websocket.send_json({
+                    "type": "system_log",
+                    "content": log_msg,
+                    "level": "BUFFERED"
+                })
+
         # Send History
         if simulation.session_log:
              logger.info(f"Sending history ({len(simulation.session_log)} entries) to {websocket.client}")
@@ -287,9 +331,18 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     try:
                         all_dreams = []
+                        
                         for agent in simulation.agents:
                             logger.info(f"Dreaming for agent: {agent.soul.name}")
                             await SystemLogger.log(agent.agent_name.upper(), "Commencing deep reflection...", "DEBUG")
+                            
+                            # Phase 2.6: Calculate trust deltas for dream context
+                            snapshot = simulation.initial_trust_snapshots.get(agent.agent_name, {})
+                            dream_deltas = {}
+                            for name, rel in agent.soul.relationships.items():
+                                old_score = snapshot.get(name, 0)
+                                dream_deltas[name] = rel.trust_score - old_score
+                            logger.info(f"[DREAM_INPUT] {agent.soul.name} trust deltas: {dream_deltas}")
                             
                             stream_id = f"dream_{agent.agent_name}_{int(asyncio.get_event_loop().time())}"
                             await websocket.send_json({
@@ -302,7 +355,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             
                             full_dream_text = ""
                             logger.info(f"Connecting to LLM for {agent.soul.name} dream...")
-                            async for chunk in dream_phase_stream(agent, simulation.session_log):
+                            async for chunk in dream_phase_stream(agent, simulation.session_log, trust_deltas=dream_deltas):
                                 full_dream_text += chunk
                                 await websocket.send_json({
                                     "type": "stream_chunk",
@@ -332,7 +385,25 @@ async def websocket_endpoint(websocket: WebSocket):
                             })
                             await asyncio.sleep(2.0) # Cool down for local LLM
                             
-                        await SystemLogger.log("SIMULATION", "All dreams recorded. Session finalized.", "INFO")
+                        # Post-dream processing: review agendas
+                        await SystemLogger.log("SIMULATION", "Reviewing agendas post-dream...", "DEBUG")
+                        for agent in simulation.agents:
+                            # Calculate trust deltas against INITIAL snapshots (from session start)
+                            snapshot = simulation.initial_trust_snapshots.get(agent.agent_name, {})
+                            deltas = {}
+                            for name, rel in agent.soul.relationships.items():
+                                old_score = snapshot.get(name, 0)
+                                deltas[name] = rel.trust_score - old_score
+                            
+                            # Review agendas based on trust deltas
+                            await review_agendas(agent, deltas)
+                            agent.save_state()
+                        
+                        await SystemLogger.log("SIMULATION", "All dreams recorded. Agendas reviewed. Session finalized.", "INFO")
+                        
+                        # Reset trust baseline for next session
+                        simulation.snapshot_trust()
+                        
                         # We still send the legacy 'dream' type for full state consistency if the UI needs it
                         await websocket.send_json({"type": "dream", "data": all_dreams})
                         
@@ -356,63 +427,67 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
                 # --- REAL-TIME SEQUENTIAL PROCESSING & STREAMING ---
-                # We process agents one by one to give a "live" feel
+                # Architecture: Action (Chat) → Consequence (Reconciliation) → Reflection (Dreaming)
                 
-                # 1. Log Start
                 await SystemLogger.log("SIMULATION", f"Processing input: {user_text[:30]}...", "INFO")
+
+                all_responses = []  # Collected after ALL agents speak — for reconciliation
 
                 for agent in simulation.agents:
                     # A. Recall
                     await SystemLogger.log(agent.agent_name.upper(), "Accessing neural memory banks...", "DEBUG")
-                    # Run sync method in thread
                     memories = await asyncio.to_thread(agent.recall_memories, user_text)
                     context_string = ""
                     if memories:
                         try:
-                            # Defensive: ensure all memories are strings to prevent "sequence item 0: expected str instance, dict found"
                             memories_str = [str(m) for m in memories]
                             context_string = "I remember: " + " | ".join(memories_str)
-                            # Log if we had to convert
                             if any(not isinstance(m, str) for m in memories):
-                                await SystemLogger.log(agent.agent_name.upper(), f"WARNING: Memory corruption detected. Recall returned non-strings: {memories}", "ERROR")
+                                await SystemLogger.log(agent.agent_name.upper(), f"WARNING: Memory corruption detected.", "ERROR")
                         except Exception as e:
                              await SystemLogger.log(agent.agent_name.upper(), f"Memory processing error: {e}", "ERROR")
                              context_string = ""
 
-                    # B. Speak (Visual) - The Heavy Lifting
+                    # B. Speak (Visual)
                     await SystemLogger.log(agent.agent_name.upper(), "Generating response...", "DEBUG")
-                    
-                    # Run generation in thread
                     response_data = await asyncio.to_thread(
                         agent.speak_visual, user_text, context=context_string
                     )
                     
-                    # Log the thought process
                     hidden = response_data['hidden_text']
                     await SystemLogger.log(agent.agent_name.upper(), f"Draft: {hidden[:50]}...", "DEBUG")
 
-                    # C. Physics
-                    await SystemLogger.log("PHYSICS_ENGINE", f"Calculating impact for {agent.soul.name}...", "DEBUG")
+                    # C. Physics — User ↔ Agent ONLY (stats + goals, NO relationships)
+                    await SystemLogger.log("PHYSICS_ENGINE", f"Calculating User↔Agent impact for {agent.soul.name}...", "DEBUG")
+                    active_goals = [g.description for g in agent.soul.goals if g.active]
                     current_stats = agent.soul.dynamic_stats.model_dump()
                     impact = await asyncio.to_thread(
-                        simulation.physics.calculate_impact, agent.agent_name, current_stats, user_text
+                        simulation.physics.calculate_impact,
+                        agent.agent_name, current_stats, user_text,
+                        active_goals
                     )
                     
-                    # Apply physics (thread-safe enough for this scale)
+                    # Apply stat changes (User ↔ Agent)
                     agent.soul.update_stat('confidence', impact.get('confidence_change', 0))
                     agent.soul.update_stat('paranoia', impact.get('paranoia_change', 0))
                     agent.soul.update_stat('loyalty_to_chairman', impact.get('loyalty_change', 0))
+                    
+                    # Apply goal progress
+                    for goal_desc, delta in impact.get('goal_updates', {}).items():
+                        agent.soul.update_goal_progress(goal_desc, delta)
+                    completed = agent.soul.check_goal_completion()
+                    if completed:
+                        await SystemLogger.log("PHYSICS_ENGINE", f"GOAL COMPLETED: {', '.join(completed)}", "CRITICAL")
+                    
                     agent.save_state()
+                    await SystemLogger.log("PHYSICS_ENGINE", "Stats + goals updated.", "INFO")
 
-                    # Add stats to response
                     response_data['stats'] = agent.soul.dynamic_stats.model_dump()
+                    response_data['relationships'] = agent.soul.get_serializable_relationships()
                     response_data['impact'] = impact
 
                     # D. SIMULATED STREAMING
-                    # We have the full text. Now we "stream" it to the frontend.
                     public_text = response_data['public_text']
-                    
-                    # Notify frontend starting stream
                     stream_id = f"{agent.agent_name}_{int(asyncio.get_event_loop().time())}"
                     await manager.broadcast({
                         "type": "stream_start",
@@ -423,8 +498,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "relationships": response_data['relationships']
                     })
 
-                    # Chunk and send
-                    chunk_size = 4 # chars per chunk
+                    chunk_size = 4
                     for i in range(0, len(public_text), chunk_size):
                         chunk = public_text[i:i+chunk_size]
                         await manager.broadcast({
@@ -432,22 +506,64 @@ async def websocket_endpoint(websocket: WebSocket):
                             "id": stream_id,
                             "content": chunk
                         })
-                        await asyncio.sleep(0.02) # Typing speed delay
+                        await asyncio.sleep(0.02)
 
-                    # End stream
                     await manager.broadcast({
                         "type": "stream_end",
                         "id": stream_id, 
-                        "full_data": response_data # Send full data for final consistent state
+                        "full_data": response_data
                     })
                     
-                    # Persist
                     simulation.session_log.append({
                         "type": "agent_post",
                         "data": response_data
                     })
                     simulation.save_history()
+                    
+                    # Collect for reconciliation
+                    all_responses.append({
+                        "name": agent.soul.name,
+                        "public_text": response_data['public_text']
+                    })
 
+                # E. RECONCILIATION — Agent ↔ Agent ONLY (trust deltas)
+                await SystemLogger.log("RECONCILIATION", "Analyzing inter-agent dynamics...", "INFO")
+                agent_core_values = {
+                    a.soul.name: a.soul.core_values for a in simulation.agents
+                }
+                trust_matrix = await asyncio.to_thread(
+                    simulation.physics.reconcile_turn, all_responses, agent_core_values
+                )
+                
+                for agent in simulation.agents:
+                    deltas = trust_matrix.get(agent.soul.name, {})
+                    for target_name, delta in deltas.items():
+                        if target_name == "vote" or not isinstance(delta, (int, float)):
+                            continue  # Phase 2.6: skip vote metadata
+                        agent.soul.update_relationship(target_name, delta)
+                    agent.save_state()
+                
+                # Broadcast updated relationships after reconciliation
+                # Phase 2.6: Include relationship_type classification
+                for agent in simulation.agents:
+                    classified_rels = {}
+                    for name, rel_data in agent.soul.get_serializable_relationships().items():
+                        score = rel_data.get("trust_score", 0)
+                        if score >= 20:
+                            rel_type = "Allied"
+                        elif score <= -20:
+                            rel_type = "Hostile"
+                        else:
+                            rel_type = "Neutral"
+                        rel_data["relationship_type"] = rel_type
+                        classified_rels[name] = rel_data
+                    await manager.broadcast({
+                        "type": "relationship_update",
+                        "agent_id": agent.agent_name,
+                        "relationships": classified_rels
+                    })
+                
+                await SystemLogger.log("RECONCILIATION", f"Trust matrix applied.", "INFO")
                 await SystemLogger.log("SIMULATION", "Turn complete. Awaiting next input.", "INFO")
                 logger.info("Turn complete.")
 
@@ -467,10 +583,12 @@ async def websocket_endpoint(websocket: WebSocket):
 main_loop = None
 
 class SystemLogger:
+    log_buffer = []  # Store last 1000 logs
+
     @staticmethod
     async def log(module: str, message: str, level: str = "INFO"):
         """
-        Broadcasts a system log to all connected clients.
+        Broadcasts a system log to all connected clients and buffers it.
         """
         import datetime
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -479,6 +597,11 @@ class SystemLogger:
         # Add basic severity flagging for the frontend
         if level in ["ERROR", "CRITICAL", "MUTINY"]:
             log_entry += " [CRITICAL]"
+
+        # Buffer logic
+        SystemLogger.log_buffer.append(log_entry)
+        if len(SystemLogger.log_buffer) > 1000:
+            SystemLogger.log_buffer.pop(0)
 
         payload = {
             "type": "system_log",
@@ -518,6 +641,16 @@ async def keepalive_task():
         ]
         msg = random.choice(heartbeats)
         await SystemLogger.log("SYSTEM", msg, "DEBUG")
+
+@app.on_event("startup")
+async def startup_event():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+    asyncio.create_task(keepalive_task())
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 @app.on_event("startup")
 async def startup_event():

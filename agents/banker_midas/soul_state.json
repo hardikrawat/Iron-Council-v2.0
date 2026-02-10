@@ -8,13 +8,41 @@
         "Leverage"
     ],
     "dynamic_stats": {
-        "confidence": 80,
+        "confidence": 85,
         "paranoia": 75,
-        "loyalty_to_chairman": 0,
-        "stress_level": 50
+        "loyalty_to_chairman": 5,
+        "stress_level": 50,
+        "energy": 100
     },
     "relationships": {
-        "General Ares": 20,
-        "Diplomat Dove": 20
-    }
+        "General Ares": {
+            "trust_score": -20,
+            "last_interaction_summary": "calized firewalls, but ultimately voted alongside General Ares and Analyst Logic for the immediate neutralization strategy using EMP charges. The choi",
+            "hidden_agenda": "Undermine General Ares's financial stability to weaken their influence and secure my own position of power."
+        },
+        "Diplomat Dove": {
+            "trust_score": 40,
+            "last_interaction_summary": "s, which could be jeopardized by such opposition. Diplomat Dove surprisingly backed me, though her own motives remain unclear given her strategic alli",
+            "hidden_agenda": null
+        },
+        "Analyst Logic": {
+            "trust_score": -40,
+            "last_interaction_summary": ", but ultimately voted alongside General Ares and Analyst Logic for the immediate neutralization strategy using EMP charges. The choice was not withou",
+            "hidden_agenda": "Undermine Analyst Logic's credibility by exposing their flawed predictions to regulators, jeopardizing their influence over financial decisions."
+        }
+    },
+    "goals": [
+        {
+            "description": "Maximize treasury reserves",
+            "priority": "strategic",
+            "active": true,
+            "progress": 0
+        },
+        {
+            "description": "Secure exclusive trade deal",
+            "priority": "tactical",
+            "active": true,
+            "progress": 0
+        }
+    ]
 }
