@@ -138,6 +138,33 @@
   }
 }
 
+
+/* SHARP 90s SHADOW */
+.shadow-sharp {
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1) !important;
+}
+
+.shadow-sharp:active {
+  box-shadow: 0px 0px 0px 0px rgba(0, 0, 0, 1) !important;
+}
+
+/* LED GLOWS */
+.led-glow-green {
+  box-shadow: 0 0 5px rgba(74, 222, 128, 0.8);
+}
+
+.led-glow-amber {
+  box-shadow: 0 0 5px rgba(251, 191, 36, 0.8);
+}
+
+.led-glow-cyan {
+  box-shadow: 0 0 5px rgba(34, 211, 238, 0.8);
+}
+
+.led-glow-red {
+  box-shadow: 0 0 5px rgba(220, 38, 38, 0.8);
+}
+
 /* SCROLLBAR UTILITIES */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;

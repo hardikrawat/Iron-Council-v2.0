@@ -12,6 +12,9 @@ class EventType(str, Enum):
     SYSTEM_TICK = "SYSTEM_TICK"   # The heartbeat pulse
     LOCK_UPDATE = "LOCK_UPDATE"   # Status of the "Conch"
     SILENCE_WARNING = "SILENCE_WARNING" # Entropy warning
+    AGENT_STATUS = "AGENT_STATUS" # Granular activity (Thinking, Idle, etc)
+    MEMORY_ACCESS = "MEMORY_ACCESS" # Disk R/W activity
+    LLM_ACTIVITY = "LLM_ACTIVITY"   # Neural/LLM processing
 
 class EventBus:
     """
@@ -20,6 +23,23 @@ class EventBus:
     def __init__(self):
         self._subscribers: Dict[str, List[Callable[[Dict[str, Any]], Awaitable[None]]]] = {}
         self._lock = asyncio.Lock()
+        self._main_loop: asyncio.AbstractEventLoop = None
+        self.background_tasks = set() # Strong references to prevent GC
+
+    def capture_loop(self):
+        """Call this from an async context (e.g. FastAPI startup) to capture the main event loop."""
+        self._main_loop = asyncio.get_running_loop()
+        logger.info("EventBus captured main event loop.")
+
+    def publish_threadsafe(self, event_type: str, payload: Dict[str, Any]):
+        """
+        Thread-safe publish for use from sync code running in worker threads
+        (e.g. agent.speak() called via asyncio.to_thread()).
+        """
+        if self._main_loop and self._main_loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.publish(event_type, payload), self._main_loop)
+        else:
+            logger.debug(f"Skipped threadsafe publish for {event_type}: no main loop captured.")
 
     def subscribe(self, event_type: str, callback: Callable[[Dict[str, Any]], Awaitable[None]]):
         """
@@ -44,18 +64,13 @@ class EventBus:
         tasks = []
         for callback in callbacks:
             try:
-                tasks.append(asyncio.create_task(callback(payload)))
+                task = asyncio.create_task(callback(payload))
+                self.background_tasks.add(task)
+                task.add_done_callback(self.background_tasks.discard)
             except Exception as e:
                 logger.error(f"Error creating task for subscriber: {e}")
 
-        # We don't await the tasks here to keep publish non-blocking for the emitter?
-        # User requirement says "Non-blocking". 
-        # But we generally want to verify they run. 
-        # For a true event bus, we typically fire and forget or use a queue.
-        # Given "Non-blocking" requirement, we leave them as background tasks.
-        # However, to avoid 'Task was destroyed but it is pending', we should probably track them loosely or fire-and-forget properly.
-        # Ideally, we'd use a Queue, but the user requirement #1 says "use asyncio.Queue OR a list of callback functions".
-        # Let's stick to the list of callbacks as requested in Requirements #1 (second option).
+        # Task reference is now held in self.background_tasks until complete
         pass
 
     async def publish_sync(self, event_type: str, payload: Dict[str, Any]):

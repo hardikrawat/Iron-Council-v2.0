@@ -43,7 +43,9 @@ class PhysicsSystem:
         """
         content = payload.get("content", "")
         # Log to transcript
-        await self._append_log({"type": "user", "content": content})
+        import datetime
+        timestamp = datetime.datetime.now().isoformat()
+        await self._append_log({"type": "user", "content": content, "timestamp": timestamp})
         
         logger.info(f"[PHYSICS] Analyzing World Event: {content[:30]}...")
 
@@ -57,28 +59,36 @@ class PhysicsSystem:
 
     async def _process_world_event_for_agent(self, agent: IronAgent, content: str):
         try:
-            active_goals = [g.description for g in agent.soul.goals if g.active]
-            current_stats = agent.soul.dynamic_stats.model_dump()
-            
             # Physics Calculation
             # Note: calculate_impact is blocking (calls LLM), so we might want to run in thread
             # if not already async. calculate_impact uses llm_service.generate_response which is sync.
             # So we wrap in to_thread.
             impact = await asyncio.to_thread(
                 self.physics.calculate_impact,
-                agent.agent_name, current_stats, content, active_goals
+                content, agent.soul
             )
             
             # Apply Updates
             agent.soul.update_stat('confidence', impact.get('confidence_change', 0))
             agent.soul.update_stat('paranoia', impact.get('paranoia_change', 0))
-            agent.soul.update_stat('loyalty_to_chairman', impact.get('loyalty_change', 0))
+            agent.soul.update_stat('loyalty_to_chairman', impact.get('loyalty_to_chairman_change', 0))
+            agent.soul.update_stat('stress_level', impact.get('stress_level_change', 0))
             
             # Goals
             for goal_desc, delta in impact.get('goal_updates', {}).items():
                 agent.soul.update_goal_progress(goal_desc, delta)
             
             agent.save_state()
+            
+            # Broadcast Stat Update
+            await self.event_bus.publish(EventType.AGENT_STATUS, {
+                "agent": agent.agent_name,
+                "status": "STAT_UPDATE",
+                "details": "Reaction to World Event",
+                "stats": agent.soul.dynamic_stats.model_dump(),
+                "goals": [g.model_dump() for g in agent.soul.goals]
+            })
+            
             logger.info(f"[PHYSICS] Updated {agent.soul.name} stats via World Event.")
             
         except Exception as e:
@@ -100,11 +110,15 @@ class PhysicsSystem:
         # PhysicsSystem receives that. 
         # Appends formatted entry.
         
+        import datetime
+        # Reuse timestamp if provided in payload, else generate
+        timestamp = payload.get("timestamp") or datetime.datetime.now().isoformat()
+        
         entry_data = {
             "name": self._get_soul_name(speaker_name), 
             "public_text": content
         }
-        await self._append_log({"type": "agent_post", "data": entry_data})
+        await self._append_log({"type": "agent_post", "data": entry_data, "timestamp": timestamp})
 
         if not speaker_name:
             return
@@ -122,30 +136,29 @@ class PhysicsSystem:
 
     async def _process_reaction(self, listener: IronAgent, speaker_name: str, content: str):
         try:
-            # We need the speaker's soul name for the prompt, easier if passed, 
-            # but we can resolve it or just pass speaker_name (agent ID) to physics, 
-            # physics usually expects Agent Names (Soul Names) or IDs? 
-            # existing physics.reconcile_turn uses "name" which is typically soul name.
-            # let's assume usage of agent_name (ID) for consistency, or map it.
+            # Fix #9: Resolve agent_id -> soul name so relationships use correct key
+            speaker_soul_name = self._get_soul_name(speaker_name)
             
-            # Refactored physics.calculate_relationship_update will be implemented to take:
-            # speaker_name, content, listener_agent
-            
-            await asyncio.to_thread(
+            delta = await asyncio.to_thread(
                 self.physics.calculate_relationship_update,
-                speaker_name, content, listener
+                speaker_soul_name, content, listener
             )
             
-            # Checks and generic updates are done inside calculate_relationship_update or we do them here.
-            # The Requirement says: "Update listener_agent.soul.relationships[speaker_name].trust_score"
-            # It's cleaner if Physics engine returns the delta, and WE apply it here.
-            # But the user prompt said "Trigger a new method... Calculate impact... Update soul state".
-            # Let's say physics method applies it or returns it. I'll make it return delta for modularity,
-            # but modify the agent inside if requested.
-            # "Refactor physics.py ... Update listener_agent... " implies method does it. 
-            # I will follow that.
-            
             listener.save_state()
+            
+            # Fix #6: Broadcast relationship change to frontend
+            if delta != 0:
+                await self.event_bus.publish(EventType.AGENT_STATUS, {
+                    "agent": listener.agent_name,
+                    "status": "RELATIONSHIP_UPDATE",
+                    "details": f"Trust toward {speaker_soul_name}: {delta:+d}",
+                    "relationship_data": {
+                        "listener": listener.soul.name,
+                        "speaker": speaker_soul_name,
+                        "delta": delta,
+                        "new_score": listener.soul.get_relationship_score(speaker_soul_name)
+                    }
+                })
             
         except Exception as e:
             logger.error(f"Error processing reaction for {listener.soul.name}: {e}")

@@ -1,8 +1,12 @@
+import os
 import json
 import logging
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING, Union
 from .llm import LLMService
+
+if TYPE_CHECKING:
+    from core.schema import AgentSoul
 
 logger = logging.getLogger(__name__)
 
@@ -18,21 +22,25 @@ class GamemasterPhysics:
     """
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
+        # Default system model — can be overridden by env
+        self.system_model = os.getenv("GENERAL_ARES_MODEL") or "gpt-4o"
 
     def calculate_impact(
         self,
-        agent_name: str,
-        current_stats: Dict[str, int],
-        user_action: str,
-        agent_goals: Optional[List[str]] = None
+        user_input: str,
+        agent_soul: "AgentSoul"
     ) -> dict:
         """
         User ↔ Agent ONLY. Calculates how the Chairman's action affects
         this agent's personal stats and goal progress.
-        Does NOT process agent-to-agent dynamics (that's reconcile_turn's job).
+        
+        Args:
+            user_input: The Chairman's statement/action.
+            agent_soul: The target agent's soul object.
         """
-        if agent_goals is None:
-            agent_goals = []
+        agent_name = agent_soul.name
+        current_stats = agent_soul.dynamic_stats.model_dump()
+        agent_goals = [g.description for g in agent_soul.goals if g.active]
 
         # Build goals context
         goals_context = ""
@@ -42,7 +50,7 @@ class GamemasterPhysics:
         system_prompt = "You are the Game Engine. You analyze how the Chairman's words affect an agent's psyche and goals."
         user_prompt = f"""Current Agent: {agent_name}
 Current Stats: {current_stats}
-Event: The Chairman said '{user_action}'{goals_context}
+Event: The Chairman said '{user_input}'{goals_context}
 
 TASK: How does the Chairman's statement change {agent_name}'s personal stats and goal progress?
 
@@ -50,6 +58,7 @@ RULES:
 - ONLY consider the Chairman's direct words. Do NOT consider other agents.
 - If the Chairman threatens, Loyalty drops. If the Chairman supports, Confidence rises.
 - If the event is confusing or suspicious, Paranoia rises.
+- If the event is urgent or alarming, Stress rises.
 - If the Chairman's action advanced one of the agent's goals, increase that goal's progress.
 - If the Chairman's action hindered a goal, decrease that goal's progress.
 
@@ -60,13 +69,14 @@ Expected Schema:
     "confidence_change": int,
     "paranoia_change": int,
     "loyalty_change": int,
+    "stress_change": int,
     "reasoning": "Brief explanation",
     "goal_updates": {{ "Goal description keyword": int, ... }}
 }}"""
 
         try:
             response_text = self.llm_service.generate_response(
-                model_name="gpt-4o",
+                model_name=self.system_model,
                 system_prompt=system_prompt,
                 user_message=user_prompt
             )
@@ -81,6 +91,17 @@ Expected Schema:
             response_text = re.sub(r':\s*\+(\d+)', r': \1', response_text)
 
             impact = json.loads(response_text)
+            
+            # Standardize keys to match Schema
+            impact["loyalty_to_chairman_change"] = impact.pop("loyalty_change", 0)
+            impact["stress_level_change"] = impact.pop("stress_change", 0)
+
+            # Safe cast to int
+            for k in ["confidence_change", "paranoia_change", "loyalty_to_chairman_change", "stress_level_change", "energy_change"]:
+                try:
+                    impact[k] = int(impact.get(k, 0))
+                except (ValueError, TypeError):
+                    impact[k] = 0
 
             # Ensure goal_updates exists
             impact.setdefault("goal_updates", {})
@@ -94,7 +115,8 @@ Expected Schema:
             return {
                 "confidence_change": 0,
                 "paranoia_change": 0,
-                "loyalty_change": 0,
+                "loyalty_to_chairman_change": 0,
+                "stress_level_change": 0,
                 "reasoning": "Error parsing engine response.",
                 "relationship_changes": {},
                 "goal_updates": {}
@@ -104,7 +126,8 @@ Expected Schema:
             return {
                 "confidence_change": 0,
                 "paranoia_change": 0,
-                "loyalty_change": 0,
+                "loyalty_to_chairman_change": 0,
+                "stress_level_change": 0,
                 "reasoning": f"System error: {str(e)}",
                 "relationship_changes": {},
                 "goal_updates": {}
@@ -112,25 +135,33 @@ Expected Schema:
 
     def reconcile_turn(
         self,
-        agent_responses: List[Dict[str, str]],
-        agent_core_values: Dict[str, List[str]]
-    ) -> Dict[str, Dict[str, int]]:
+        # Granular Mode (Architecture Standard)
+        speaker_soul: Optional["AgentSoul"] = None,
+        listener_soul: Optional["AgentSoul"] = None,
+        statement: str = None,
+        transcript: List = None,
+        # Batch Mode (Legacy)
+        agent_responses: Optional[List[Dict[str, str]]] = None,
+        agent_core_values: Optional[Dict[str, List[str]]] = None
+    ) -> Dict:
         """
-        Agent ↔ Agent ONLY. Called ONCE after all agents have spoken.
-        Evaluates semantic alignment between every pair of agents and returns
-        a trust delta matrix.
-
-        Phase 2.6: Also extracts explicit votes (A/B) and applies deterministic
-        penalties for opposing votes, overriding sentiment analysis.
-
-        Args:
-            agent_responses: List of {"name": "Agent Name", "public_text": "What they said"}
-            agent_core_values: {"Agent Name": ["Value1", "Value2", ...]}
-
-        Returns:
-            {"Agent Name": {"Other Agent": trust_delta, ..., "vote": "A"|"B"|"None"}, ...}
+        Evaluates interaction logic. Two modes:
+        1. Granular (Architecture): Updates listener's trust based on speaker.
+           Returns {listener: {speaker: delta}}.
+        2. Batch (Legacy): Updates matrix for all agents.
         """
-        if len(agent_responses) < 2:
+        # Mode 1: Granular
+        if speaker_soul and listener_soul and statement:
+            delta = self.calculate_relationship_update(speaker_soul.name, statement, listener_soul)
+            # Return dict format expected by tests/architecture
+            # Note: Tests expect { "trust_delta": int, ... } or similar?
+            # test_alliance_betrayal.py expects result[trust_key] to be the delta
+            # The tests inspect the RETURN value look for "trust...".
+            # The Architecture doc says returns Dict[str, Dict[str, int]].
+            return {listener_soul.name: {speaker_soul.name: delta}}
+
+        # Mode 2: Batch
+        if not agent_responses or len(agent_responses) < 2:
             return {}
 
         # Build the transcript
@@ -177,7 +208,7 @@ Expected Schema (for {len(agent_names)} agents):
 
         try:
             response_text = self.llm_service.generate_response(
-                model_name="gpt-4o",
+                model_name=self.system_model,
                 system_prompt=system_prompt,
                 user_message=user_prompt
             )
@@ -253,25 +284,23 @@ Expected Schema (for {len(agent_names)} agents):
         self,
         speaker_name: str,
         content: str,
-        listener_agent: object # Type hint as object to avoid circular import, effectively IronAgent
+        listener_soul: Union["AgentSoul", object] 
     ) -> int:
         """
         Calculates the change in trust for a listener agent based on what a speaker said.
         Updates the listener's relationship with the speaker directly.
         Returns the delta for logging/debugging.
         """
-        listener_soul = listener_agent.soul
-        
+        # Handle IronAgent wrapper if passed (Legacy compatibility)
+        if hasattr(listener_soul, "soul"):
+            listener_soul = listener_soul.soul
+            
         # Self-talk check
         if speaker_name == listener_soul.name:
             return 0
 
         # Current relationship context
-        current_rel = listener_soul.get_relationship(speaker_name) # Assuming this method exists or we access dict directly
-        # If get_relationship might return a default object or we access raw dict:
-        if not current_rel and speaker_name in listener_soul.relationships:
-             current_rel = listener_soul.relationships[speaker_name]
-
+        current_rel = listener_soul.relationships.get(speaker_name)
         current_trust = current_rel.trust_score if current_rel else 0
 
         system_prompt = (
@@ -300,7 +329,7 @@ Output ONLY an integer.
 
         try:
             response_text = self.llm_service.generate_response(
-                model_name="gpt-4o", # Or listener_soul.base_model if preferred, but engine usually uses smart model
+                model_name=self.system_model,
                 system_prompt=system_prompt,
                 user_message=user_prompt
             )

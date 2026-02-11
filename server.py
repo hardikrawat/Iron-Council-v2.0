@@ -54,62 +54,15 @@ heartbeat = Heartbeat(event_bus)
 active_loops: List[OODALoop] = []
 physics_system: Optional[PhysicsSystem] = None
 
-# --- MECHANIC: INTEGRITY SPY (The Mixin Strategy) ---
-class IntegritySpy:
-    """
-    Wraps the original IntegrityMonitor to capture the 'draft' (hidden thought)
-    without modifying the core agent logic.
-    """
-    def __init__(self, original_integrity):
-        self._original = original_integrity
-        self.last_draft = None
-
-    def check_integrity(self, soul, draft):
-        # Capture the draft before passing it to the real integrity monitor
-        self.last_draft = draft
-        return self._original.check_integrity(soul, draft)
-
-class VisualIronAgent(IronAgent):
-    """
-    A wrapper around IronAgent that exposes internal states for the UI.
-    Inherits from IronAgent to ensure shared state (reads/writes same JSON).
-    """
-    def __init__(self, agent_name: str):
-        super().__init__(agent_name)
-        # Inject the spy
-        self.spy = IntegritySpy(self.integrity)
-        self.integrity = self.spy  # Replace the instance attribute
-
-    def speak_visual(self, situation_report: str, context: str = "") -> Dict[str, Any]:
-        """
-        Calls the original speak() method, then extracts the hidden thought
-        from the spy. Returns a rich dictionary for the frontend.
-        """
-        # 1. Generate standard response (modifies state via core logic)
-        public_response = self.speak(situation_report, context)
-
-        # 2. Retrieve hidden thought
-        hidden_thought = self.spy.last_draft if self.spy.last_draft else public_response
-
-        # 3. Return rich data package
-        return {
-            "id": self.agent_name,
-            "name": self.soul.name,
-            "public_text": public_response,
-            "hidden_text": hidden_thought,
-            "stats": self.soul.dynamic_stats.model_dump(),
-            "relationships": self.soul.get_serializable_relationships(),
-        }
-
 # --- SIMULATION ENGINE ---
 class CouncilSimulation:
-    def __init__(self):
+    def __init__(self, event_bus: EventBus):
         self.llm = LLMService()
         self.physics = GamemasterPhysics(self.llm)
         # No central memory needed here, agents have their own
         
         agent_names = ["general_ares", "diplomat_dove", "banker_midas", "analyst_logic"]
-        self.agents = [VisualIronAgent(name) for name in agent_names]
+        self.agents = [IronAgent(name, event_bus) for name in agent_names]
         self.session_log = []
         self.initial_trust_snapshots = {}
         # Capture initial trust baseline
@@ -172,7 +125,7 @@ class ConnectionManager:
                     pass
 
 manager = ConnectionManager()
-simulation = CouncilSimulation()
+simulation = CouncilSimulation(event_bus)
 
 # Add Persistence Methods to Simulation
 def load_history(self):
@@ -205,16 +158,16 @@ async def bridge_events_to_websocket(payload: dict):
         agent = next((a for a in simulation.agents if a.agent_name == agent_name), None)
         
         if agent:
-             # Construct data to match App.jsx expectations for 'agent_post'
-             # Note: OODA loop uses base speak(), so hidden_text might be missing/empty in OODA response.
-             # Ideally we'd fix OODA to use speak_visual, but for now we send what we have.
+             hidden_text = payload.get("hidden_text", "")
+             
              agent_data = {
                  "id": agent.agent_name,
                  "name": agent.soul.name,
                  "public_text": content,
-                 "hidden_text": "", # Placeholder until OODA uses speak_visual
+                 "hidden_text": hidden_text,
                  "stats": agent.soul.dynamic_stats.model_dump(),
-                 "relationships": agent.soul.get_serializable_relationships()
+                 "relationships": agent.soul.get_serializable_relationships(),
+                 "timestamp": datetime.datetime.now().isoformat()
              }
              
              ws_payload = {
@@ -240,6 +193,63 @@ async def bridge_silence_warning(payload: dict):
     
     # Use SystemLogger to broadcast to UI
     await SystemLogger.log("HEARTBEAT", log_msg, "WARNING")
+
+async def bridge_agent_status(payload: dict):
+    """
+    Bridges AGENT_STATUS events to the WebSocket.
+    Also intercepts RELATIONSHIP_UPDATE to sync full graph data.
+    """
+    # Standard status update
+    ws_payload = {
+        "type": "agent_status_update",
+        "data": payload
+    }
+    await manager.broadcast(ws_payload)
+
+    # Special Case: Relationship Update -> Sync Graph
+    if payload.get("status") == "RELATIONSHIP_UPDATE":
+        agent_name = payload.get("agent")
+        agent = next((a for a in simulation.agents if a.agent_name == agent_name), None)
+        
+        if agent:
+            graph_payload = {
+                "type": "relationship_update",
+                "agent_id": agent.agent_name,
+                "relationships": agent.soul.get_serializable_relationships()
+            }
+            await manager.broadcast(graph_payload)
+            logger.info(f"[WS_BRIDGE] Synced relationship graph for {agent.soul.name}")
+
+    # Special Case: Stat Update -> Sync Stats
+    if payload.get("status") == "STAT_UPDATE":
+        stats_payload = {
+            "type": "stat_update",
+            "agent_id": payload.get("agent"),
+            "stats": payload.get("stats"),
+            "goals": payload.get("goals")
+        }
+        await manager.broadcast(stats_payload)
+
+async def bridge_system_tick(payload: dict):
+    """
+    Bridges SYSTEM_TICK events to the WebSocket.
+    """
+    ws_payload = {
+        "type": "system_state_update",
+        "data": payload
+    }
+    await manager.broadcast(ws_payload)
+
+async def bridge_activity_event(payload: dict, event_type: str):
+    """
+    Bridges MEMORY_ACCESS and LLM_ACTIVITY events to the WebSocket.
+    """
+    ws_payload = {
+        "type": "activity_event",
+        "event": event_type,
+        "data": payload
+    }
+    await manager.broadcast(ws_payload)
 
 # --- SYSTEM LOGGER & KEEPALIVE ---
 main_loop = None
@@ -312,6 +322,7 @@ async def keepalive_task():
 async def startup_event():
     global main_loop, active_loops
     main_loop = asyncio.get_running_loop()
+    event_bus.capture_loop()
     
     # 1. Start Support Services
     asyncio.create_task(keepalive_task())
@@ -335,6 +346,13 @@ async def startup_event():
     # Phase 3: Subscribe Bridge
     event_bus.subscribe(EventType.AGENT_SPEAK, bridge_events_to_websocket)
     event_bus.subscribe(EventType.SILENCE_WARNING, bridge_silence_warning)
+    event_bus.subscribe(EventType.AGENT_STATUS, bridge_agent_status)
+    event_bus.subscribe(EventType.SYSTEM_TICK, bridge_system_tick)
+    
+    # Activity Bridge
+    from functools import partial
+    event_bus.subscribe(EventType.MEMORY_ACCESS, partial(bridge_activity_event, event_type="DISK"))
+    event_bus.subscribe(EventType.LLM_ACTIVITY, partial(bridge_activity_event, event_type="LLM"))
     
     # Phase 3: Initialize OODA Loops
     logger.info("Initializing OODA Loops...")
@@ -343,6 +361,111 @@ async def startup_event():
         active_loops.append(loop)
         asyncio.create_task(loop.start())
         logger.info(f"Started OODA loop for {agent.soul.name}")
+
+async def _handle_end_session():
+    """
+    Fix #2: Full end session + dream phase restoration.
+    Pauses OODA loops, streams dream for each agent, reviews agendas, resumes.
+    """
+    logger.info("=== END SESSION TRIGGERED ===")
+    
+    # 1. Broadcast system message to frontend
+    await manager.broadcast({
+        "type": "system",
+        "content": "SESSION ENDED. DREAMING..."
+    })
+    
+    # 2. Pause OODA loops and heartbeat
+    for loop in active_loops:
+        loop._running = False
+    heartbeat.stop()
+    logger.info("OODA loops and heartbeat paused for dream phase.")
+    
+    # 3. Compute trust deltas from session start
+    trust_delta_map = {}  # {agent_name: {other_soul_name: delta}}
+    for agent in simulation.agents:
+        agent_deltas = {}
+        initial_snapshot = simulation.initial_trust_snapshots.get(agent.agent_name, {})
+        for name, rel in agent.soul.relationships.items():
+            old_score = initial_snapshot.get(name, 0)
+            delta = rel.trust_score - old_score
+            if delta != 0:
+                agent_deltas[name] = delta
+        trust_delta_map[agent.agent_name] = agent_deltas
+    
+    logger.info(f"Trust deltas computed: { {a: d for a, d in trust_delta_map.items() if d} }")
+    
+    # 4. Stream dream phase for each agent
+    for agent in simulation.agents:
+        agent_deltas = trust_delta_map.get(agent.agent_name, {})
+        
+        # Send stream_start
+        await manager.broadcast({
+            "type": "stream_start",
+            "agent": agent.agent_name,
+            "name": agent.soul.name,
+            "is_dream": True
+        })
+        
+        full_dream = ""
+        try:
+            async for chunk in dream_phase_stream(agent, simulation.session_log, trust_deltas=agent_deltas):
+                full_dream += chunk
+                await manager.broadcast({
+                    "type": "stream_chunk",
+                    "agent": agent.agent_name,
+                    "chunk": chunk
+                })
+        except Exception as e:
+            logger.error(f"Error streaming dream for {agent.soul.name}: {e}")
+            full_dream = f"[Dream failed: {e}]"
+        
+        # Send stream_end
+        await manager.broadcast({
+            "type": "stream_end",
+            "agent": agent.agent_name,
+            "full_text": full_dream
+        })
+        
+        # Send dream type for sidebar
+        await manager.broadcast({
+            "type": "dream",
+            "data": {
+                "agent_name": agent.soul.name,
+                "agent_id": agent.agent_name,
+                "entry": full_dream
+            }
+        })
+        
+        # 5. Review agendas for this agent
+        try:
+            await review_agendas(agent, agent_deltas)
+        except Exception as e:
+            logger.error(f"Error reviewing agendas for {agent.soul.name}: {e}")
+        
+        # 6. Save agent state
+        agent.save_state()
+        logger.info(f"Dream complete for {agent.soul.name}")
+    
+    # 7. Re-snapshot trust baselines for next session
+    simulation.snapshot_trust()
+    
+    # 8. Clear session log for next session
+    simulation.session_log.clear()
+    simulation.save_history()
+    
+    # 9. Resume OODA loops and heartbeat
+    for loop in active_loops:
+        loop._running = True
+        asyncio.create_task(loop.start())
+    asyncio.create_task(heartbeat.start())
+    
+    await manager.broadcast({
+        "type": "system",
+        "content": "DREAM PHASE COMPLETE. Council is reconvening."
+    })
+    logger.info("=== DREAM PHASE COMPLETE — OODA loops resumed ===")
+
 
 @app.websocket("/ws/council")
 async def websocket_endpoint(websocket: WebSocket):
@@ -382,14 +505,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_text = message.get("content")
                 logger.info(f"User sent: {user_text}")
                 
+                # Fix #1: Echo chairman message immediately to all clients
+                await manager.broadcast({
+                    "type": "user_post",
+                    "content": user_text,
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+                
                 # Check for end session
-                if user_text.lower() in ["end session", "exit", "quit"]:
-                     # ... (Keep existing end session / dreaming logic for now)
-                     # For brevity in this refactor, defaulting to basic handling or keeping it as is.
-                     # But we must ensure OODA loops stop or pause? User says "Hybrid Mode".
-                     # Let's keep strict "end session" logic from previous server.py if possible, 
-                     # but simplistic here due to refactor size limits.
-                     pass 
+                if user_text.lower().strip().rstrip('.') in ["end session", "exit", "quit"]:
+                    # Fix #2: Full dream phase restoration
+                    await _handle_end_session()
+                    continue
 
                 # PHASE 3: EVENT DRIVEN
                 # Instead of processed_turn, we publish to EventBus

@@ -18,6 +18,18 @@ class SpeakingLock:
         self.ttl = ttl_seconds
         # No asyncio.Lock needed as operations are atomic in GIL for this purpose
 
+    @property
+    def current_holder(self) -> Optional[str]:
+        return self.owner
+
+    def is_locked(self) -> bool:
+        return self.owner is not None
+
+    def is_expired(self) -> bool:
+        if not self.owner or not self.acquired_at:
+            return False
+        return (datetime.now() - self.acquired_at).total_seconds() > self.ttl
+
     def acquire(self, agent_name: str) -> bool:
         now = datetime.now()
         
@@ -60,7 +72,7 @@ class SpeakingLock:
 class Heartbeat:
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
-        self.conch = SpeakingLock(ttl_seconds=LOCK_TTL)
+        self.speaking_lock = SpeakingLock(ttl_seconds=LOCK_TTL)
         self.last_activity_timestamp = time.time()
         self.global_tension = 0
         self._running = False
@@ -79,12 +91,32 @@ class Heartbeat:
     @property
     def is_running(self):
         return self._running
+    
+    @property
+    def tension(self):
+        return self.global_tension
+
+    @property
+    def entropy(self):
+        return self.global_tension
+    
+    @property
+    def conch(self):
+        return self.speaking_lock
+        
+    @property
+    def lock(self):
+        return self.speaking_lock
 
     async def _tick(self):
         # 1. Emit System Tick
         await self.event_bus.publish(EventType.SYSTEM_TICK, {
             "time": time.time(),
-            "tension": self.global_tension
+            "tension": self.global_tension,
+            "conch": {
+                "owner": self.speaking_lock.owner,
+                "expires_in": int(self.speaking_lock.ttl - (datetime.now() - self.speaking_lock.acquired_at).total_seconds()) if self.speaking_lock.acquired_at else 0
+            }
         })
 
         # 2. Check Entropy (Silence)
@@ -92,22 +124,26 @@ class Heartbeat:
         time_since_activity = now - self.last_activity_timestamp
         
         if time_since_activity > SILENCE_THRESHOLD:
+            # Only log every 10 seconds or if tension is not yet maxed
+            should_log = (self.global_tension < 100) or (int(time_since_activity) % 10 == 0)
+            
             self.global_tension = min(100, self.global_tension + 5)
+            
             await self.event_bus.publish(EventType.SILENCE_WARNING, {
                 "duration": time_since_activity,
                 "msg": "The silence is deafening...",
                 "tension": self.global_tension
             })
-            logger.info(f"Silence Warning! Tension: {self.global_tension}")
+            
+            if should_log:
+                logger.info(f"Silence Warning! Tension: {self.global_tension}")
 
-        # 3. Manage Lock TTL (Passive check via acquire logic mostly, but we can monitor)
-        # With new SpeakingLock, acquire() handles force-expiry on next attempt.
-        # But we might want to log if it's expired here too.
-        if self.conch.owner and self.conch.acquired_at:
-             time_held = (datetime.now() - self.conch.acquired_at).total_seconds()
-             if time_held > self.conch.ttl:
-                 logger.info("Heartbeat detecting expired lock... (will be cleared on next acquire)")
-                 # We purely observe here, acquire() does the action.
+        # 3. Manage Lock TTL
+        if self.speaking_lock.owner and self.speaking_lock.acquired_at:
+             time_held = (datetime.now() - self.speaking_lock.acquired_at).total_seconds()
+             if time_held > self.speaking_lock.ttl:
+                 logger.warning(f"[HEARTBEAT] Force-releasing expired lock held by {self.speaking_lock.owner}")
+                 self.speaking_lock.release(self.speaking_lock.owner)
 
     def register_activity(self):
         """

@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 from typing import Dict, Any
@@ -23,6 +24,7 @@ Output strictly JSON:
 class IntegrityMonitor:
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
+        self.system_model = os.getenv("GENERAL_ARES_MODEL") or "gpt-3.5-turbo"
 
     def check_integrity(self, agent_soul: Any, draft_text: str) -> Dict[str, Any]:
         """
@@ -45,8 +47,8 @@ class IntegrityMonitor:
             draft=draft_text
         )
         
-        # Using a fast model as requested
-        model_name = "gpt-3.5-turbo"
+        # Using a fast model as requested, or the configured system model
+        model_name = self.system_model
         
         try:
             response_text = self.llm_service.generate_response(

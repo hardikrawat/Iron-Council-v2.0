@@ -5,10 +5,11 @@ from datetime import datetime
 from typing import List
 
 class SubjectiveMemory:
-    def __init__(self, db_path: str = "db/"):
+    def __init__(self, db_path: str = "db/", event_bus=None):
         """
         Initialize a persistent ChromaDB client and collection.
         """
+        self.event_bus = event_bus
         self.client = chromadb.PersistentClient(path=db_path)
         
         # Use the DefaultEmbeddingFunction (all-MiniLM-L6-v2)
@@ -24,6 +25,10 @@ class SubjectiveMemory:
         """
         Add the text to the collection with metadata and a unique ID.
         """
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.MEMORY_ACCESS, {"agent": agent_name, "op": "WRITE"})
+
         memory_id = str(uuid.uuid4())
         current_time = datetime.now().isoformat()
         
@@ -41,6 +46,10 @@ class SubjectiveMemory:
         """
         Query the collection using the text query and filter by agent.
         """
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.MEMORY_ACCESS, {"agent": agent_name, "op": "READ"})
+
         results = self.collection.query(
             query_texts=[query],
             n_results=n_results,

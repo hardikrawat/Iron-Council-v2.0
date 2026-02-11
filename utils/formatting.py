@@ -8,45 +8,64 @@ def clean_agent_response(text: str, agent_name: str = None) -> str:
     if not text:
         return ""
 
-    # 1. Strip triple/double quotes if the LLM wrapped the whole thing
     text = text.strip()
+
+    # 1. Strip markdown code blocks (often used by models for 'clean' output)
+    if text.startswith("```"):
+        # If followed by a newline, assume language identifier
+        if '\n' in text:
+            # Matches ```python\n
+            text = re.sub(r'^```\w*\s*\n', '', text)
+        else:
+            # Inline block or no newline, just remove markers
+            text = text[3:].strip()
+            
+        # Remove closing ```
+        if text.endswith("```"):
+            text = text[:-3]
+    text = text.strip()
+
+    # 2. Strip quotes (standard/triple)
     if text.startswith('"""') and text.endswith('"""'):
         text = text[3:-3].strip()
     elif text.startswith('**"') and text.endswith('"**'):
         text = text[3:-3].strip()
     elif text.startswith('"') and text.endswith('"'):
         text = text[1:-1].strip()
+    elif text.startswith("'") and text.endswith("'"):
+        text = text[1:-1].strip()
 
-    # 2. Remove redundant name prefix (e.g., "General Ares: ", "Ares: ")
-    # This matches common LLM behaviors where they prepend their name.
+    # 3. Remove Name Prefixes
+    # Matches: "General Ares:", "**General Ares**:", "As General Ares:", "Ares:"
     if agent_name:
-        # Normalize agent name for matching (underscores to spaces, handle "Name Surname")
-        possible_prefixes = [
-            f"{agent_name}:",
-            f"{agent_name.replace('_', ' ').title()}:",
-            f"{agent_name.split('_')[-1].title()}:", # Just "Ares:" if name is "general_ares"
-        ]
-        
-        # Also handle cases where the name is in bold
-        bold_prefixes = [f"**{p}**" for p in possible_prefixes]
-        all_prefixes = possible_prefixes + bold_prefixes
-        
-        for prefix in all_prefixes:
-            if text.lower().startswith(prefix.lower()):
-                text = text[len(prefix):].strip()
-                break
+        name_clean = agent_name.replace('_', ' ').replace('-', ' ').title()
+        short_name = agent_name.split('_')[-1].title() # Fallback for snake_case
+        if short_name == name_clean:
+            short_name = None # Avoid duplicate in regex
+            
+        names = [re.escape(name_clean)]
+        if short_name:
+            names.append(re.escape(short_name))
+            
+        # Regex: ^(As |Speaking as )? (**)? (Name|ShortName) (**)? (:)?
+        # We use non-capturing groups for efficiency
+        name_or = "|".join(names)
+        pattern = fr"^\s*(?:(?:As|Speaking as)\s+)?(?:\*\*)?(?:{name_or})(?:\*\*)?\s*:?\s*"
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE).strip()
 
-    # 3. Remove common meta-dialogue markers (including internal ones on new lines)
-    # Matches: **To Council:**, **To the council:**, **To Banker Midas:**, etc.
-    text = re.sub(r'^\*\*To [^:]+:\*\*\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
-    text = re.sub(r'^\*To [^:]+:\*\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    # 4. Remove Meta-Dialogue / Recipient Markers
+    # Matches: "**To Council:**", "To everyone:", "(Internal Monologue)"
+    # Note: We only remove "To X:" at the START of the line.
+    text = re.sub(r'^\s*(?:\*\*)?To [^:]+:(?:\*\*)?\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
     
-    # 4. Remove leading/trailing formatting artifacts like *** or **
-    # Also handle them if they appear at start of lines inside the message
-    text = re.sub(r'^\*+(?!\s)', '', text, flags=re.MULTILINE)
-    text = re.sub(r'(?<!\s)\*+$', '', text, flags=re.MULTILINE)
+    # Remove internal monologue markers if they appear at start
+    text = re.sub(r'^\s*\(Internal Monologue\):?\s*', '', text, flags=re.IGNORECASE)
+
+    # 5. Clean artifacts
+    text = re.sub(r'^\*+(?!\s)', '', text, flags=re.MULTILINE) # Leading asterisks
+    text = re.sub(r'(?<!\s)\*+$', '', text, flags=re.MULTILINE) # Trailing asterisks
     
-    # Remove leading/trailing quotes again in case they were inside prefixes
+    # Final cleanup of quotes/whitespace
     text = text.strip().strip('"').strip("'").strip()
     
     return text
