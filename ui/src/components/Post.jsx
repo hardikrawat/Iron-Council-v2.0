@@ -36,11 +36,14 @@ const Post = ({ post }) => {
     const hiddenText = isAgent ? post.data.hidden_text : null;
 
     // Integrity mechanic: Visual diff
-    const hasHiddenLayer = isAgent && hiddenText && hiddenText.trim() !== "" && hiddenText !== publicText;
+    // Fix: Show hidden text if it exists, regardless of similarity, to ensure visibility
+    const hasHiddenLayer = isAgent && hiddenText && hiddenText.trim().length > 0;
 
     // Visual Assets: Simple Color Block Identicon
     const identiconChar = name[0];
     const colorClass = AGENT_COLORS[name] || "bg-white";
+
+    const timestamp = post.timestamp ? new Date(post.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
 
     return (
         <div className="flex gap-2 mb-3 group">
@@ -56,7 +59,7 @@ const Post = ({ post }) => {
                 <div className="text-[11px] border-b border-gray-400 pb-1 mb-1 font-bold text-[#117743] leading-none">
                     <span className="text-[#0f0c5d]">{name}</span>
                     <span className="text-[#117743] font-normal ml-2">{tripcode}</span>
-                    <span className="text-gray-500 font-normal ml-2 text-[10px]">No. {Math.floor(Math.random() * 99999999)}</span>
+                    <span className="text-gray-500 font-normal ml-2 text-[10px]">{timestamp}</span>
                 </div>
 
                 {/* Content */}

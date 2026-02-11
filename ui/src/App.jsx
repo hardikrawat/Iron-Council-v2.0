@@ -17,6 +17,9 @@ function App() {
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [systemLogs, setSystemLogs] = useState([]);
     const [heartbeatStats, setHeartbeatStats] = useState({ uptime: 0, mem: "64.0MB", status: "READY" });
+    const [agentStatuses, setAgentStatuses] = useState({});
+    const [systemState, setSystemState] = useState({ tension: 0, conch: null });
+    const [activity, setActivity] = useState({ disk: 0, llm: 0, net: 0 });
 
     useEffect(() => {
         // Connect to WebSocket
@@ -30,6 +33,10 @@ function App() {
 
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
+
+            // Pulse NET activity on every message
+            setActivity(prev => ({ ...prev, net: Date.now() }));
+
             if (msg.type === 'init') {
                 setAgents(msg.data);
             } else if (msg.type === 'heartbeat_pulse') {
@@ -37,6 +44,32 @@ function App() {
             } else if (msg.type === 'relationship_update') {
                 // Update relationships specifically 
                 setAgents(prev => prev.map(a => a.id === msg.agent_id ? { ...a, relationships: msg.relationships } : a));
+            } else if (msg.type === 'agent_status_update') {
+                setAgentStatuses(prev => ({
+                    ...prev,
+                    [msg.data.agent]: {
+                        status: msg.data.status,
+                        details: msg.data.details,
+                        updatedAt: Date.now()
+                    }
+                }));
+            } else if (msg.type === 'system_state_update') {
+                // { time, tension, conch: { owner, expires_in } }
+                setSystemState(prev => ({
+                    ...prev,
+                    tension: msg.data.tension,
+                    conch: msg.data.conch
+                }));
+            } else if (msg.type === 'stat_update') {
+                setAgents(prev => prev.map(a => a.id === msg.agent_id ? {
+                    ...a,
+                    stats: msg.stats,
+                    goals: msg.goals // Update goals as well
+                } : a));
+            } else if (msg.type === 'activity_event') {
+                const { event } = msg;
+                if (event === 'DISK') setActivity(prev => ({ ...prev, disk: Date.now() }));
+                if (event === 'LLM') setActivity(prev => ({ ...prev, llm: Date.now() }));
             } else if (msg.type === 'system_log') {
                 const content = msg.content;
                 setSystemLogs(prev => [...prev.slice(-1499), content]);
@@ -67,17 +100,19 @@ function App() {
                 // Load historical posts
                 const history = msg.data.map(item => {
                     // Normalize history items to match post structure
-                    if (item.type === 'user') return { type: 'user', content: item.content };
-                    if (item.type === 'agent_post') return { type: 'agent_post', data: item.data };
+                    if (item.type === 'user') return { type: 'user', content: item.content, timestamp: item.timestamp };
+                    if (item.type === 'agent_post') return { type: 'agent_post', data: item.data, timestamp: item.timestamp };
                     return item;
                 });
                 setPosts(history);
             } else if (msg.type === 'user_post') {
-                setPosts(prev => [...prev, { type: 'user', content: msg.content }]);
+                setPosts(prev => [...prev, { type: 'user', content: msg.content, timestamp: msg.timestamp || new Date().toISOString() }]);
             } else if (msg.type === 'agent_post') {
                 // Legacy / fallback if non-streaming
                 const agentData = msg.data;
-                setPosts(prev => [...prev, { type: 'agent_post', data: agentData }]);
+                // Use backend timestamp if available, else fallback
+                const ts = agentData.timestamp || new Date().toISOString();
+                setPosts(prev => [...prev, { type: 'agent_post', data: agentData, timestamp: ts }]);
                 setAgents(prev => prev.map(a => a.id === agentData.id ? { ...a, stats: agentData.stats, relationships: agentData.relationships } : a));
 
             } else if (msg.type === 'stream_start') {
@@ -96,6 +131,7 @@ function App() {
                         type: 'agent_post',
                         isStreaming: true,
                         streamId: msg.id,
+                        timestamp: new Date().toISOString(),
                         data: {
                             id: msg.agent_id,
                             name: msg.name,
@@ -143,8 +179,8 @@ function App() {
                             };
                         } else {
                             newPosts[lastIdx] = {
-                                type: 'agent_post',
-                                data: msg.full_data
+                                data: msg.full_data,
+                                timestamp: originalPost.timestamp || new Date().toISOString()
                             };
                             // Update stats and relationships globally when stream finishes
                             setAgents(prev => prev.map(a => a.id === msg.full_data.id ? {
@@ -185,6 +221,7 @@ function App() {
         e.preventDefault();
         if (!input.trim() || !wsRef.current) return;
 
+        setActivity(prev => ({ ...prev, net: Date.now() }));
         wsRef.current.send(JSON.stringify({ type: 'chat', content: input }));
         setInput("");
     };
@@ -208,6 +245,9 @@ function App() {
                 activeAgents={activeAgents}
                 systemLogs={systemLogs}
                 heartbeatStats={heartbeatStats}
+                agentStatuses={agentStatuses}
+                systemState={systemState}
+                activity={activity}
                 onOpenGraph={handleOpenGraph}
             />
 
@@ -237,6 +277,21 @@ function App() {
                                 if (post.type === 'dream' || post.type === 'dream_stream') return null;
                                 return <Post key={idx} post={post} />;
                             })}
+
+                            {/* Dream Mode Indicator in Main Chat */}
+                            {posts.some(p => p.type === 'dream' || p.type === 'dream_stream' || (p.type === 'system' && p.content.includes("SESSION ENDED"))) && (
+                                <div className="p-4 bg-indigo-900 border-2 border-indigo-500 text-center animate-pulse shadow-sharp my-4">
+                                    <div className="text-white font-bold text-lg tracking-widest uppercase mb-1">
+                                        ⚠️ SYSTEM DREAMING ⚠️
+                                    </div>
+                                    <div className="text-indigo-200 text-xs font-mono">
+                                        The council is reflecting via the Neural Link (Subconscious Log).
+                                        <br />
+                                        <span className="font-bold underline">CHECK THE SIDEBAR</span> for subjective memory formation.
+                                    </div>
+                                </div>
+                            )}
+
                             <div ref={bottomRef} />
                         </div>
                     </div>

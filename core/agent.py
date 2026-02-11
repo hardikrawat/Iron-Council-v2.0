@@ -11,15 +11,16 @@ from utils.formatting import clean_agent_response
 logger = logging.getLogger(__name__)
 
 class IronAgent:
-    def __init__(self, agent_name: str):
+    def __init__(self, agent_name: str, event_bus=None):
         self.agent_name = agent_name
+        self.event_bus = event_bus
         self.state_path = os.path.join("agents", agent_name, "soul_state.json")
         self.soul = self._load_soul()
         
         # Initialize services
         self.llm = LLMService()
         self.integrity = IntegrityMonitor(self.llm)
-        self.memory = SubjectiveMemory()
+        self.memory = SubjectiveMemory(event_bus=event_bus)
 
     def _load_soul(self) -> AgentSoul:
         if not os.path.exists(self.state_path):
@@ -119,10 +120,34 @@ class IronAgent:
         """
         return self.memory.recall_memories(self.agent_name, query, n_results)
 
-    def speak(self, situation_report: str, context: str = "") -> str:
+    def _generate_with_retry(self, system_prompt: str, user_message: str, max_retries: int = 3) -> str:
+        """
+        Helper: wraps LLM generation with retry logic for empty/failed responses.
+        """
+        for attempt in range(max_retries):
+            try:
+                response = self.llm.generate_response(
+                    model_name=self.soul.base_model,
+                    system_prompt=system_prompt,
+                    user_message=user_message
+                )
+                if response and response.strip():
+                     return response
+                logger.warning(f"Agent {self.agent_name} generated empty response. Retrying (Attempt {attempt+1}/{max_retries})...")
+            except Exception as e:
+                logger.warning(f"Agent {self.agent_name} LLM error: {e}. Retrying (Attempt {attempt+1}/{max_retries})...")
+                
+        logger.error(f"Agent {self.agent_name} failed to generate response after {max_retries} attempts.")
+        return "...silence..."
+
+    def speak(self, situation_report: str, context: str = "") -> Dict[str, str]:
         """
         Generates a response based on the situation, validates it through the ego,
         and rewrites it if necessary.
+        Returns:
+            Dict containing:
+            - "public_text": The final spoken text (clean).
+            - "hidden_text": The internal monologue or rejected draft (for UI).
         """
         system_prompt = self.construct_system_prompt()
         
@@ -132,8 +157,11 @@ class IronAgent:
             user_message = f"{context}\n\nPresent Situation: {situation_report}"
             
         # Step A: Draft response
-        draft = self.llm.generate_response(
-            model_name=self.soul.base_model,
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": self.agent_name, "step": "DRAFT"})
+
+        draft = self._generate_with_retry(
             system_prompt=system_prompt,
             user_message=user_message
         )
@@ -143,10 +171,14 @@ class IronAgent:
         
         # Step C: The Gate
         if check.get("approved"):
-            return clean_agent_response(draft, self.agent_name)
+            return {
+                "public_text": clean_agent_response(draft, self.agent_name),
+                "hidden_text": ""  # No conflict, no hidden thought needed? Or we could put the draft here?
+            }
         
         # Step D: Rewrite
         critique = check.get("critique", "No critique provided.")
+        hidden_thought = f"[REJECTED DRAFT]: {draft}\n[CRITIQUE]: {critique}"
         print(f"[DEBUG] Ego Critique: {critique}")
         
         rewrite_prompt = (
@@ -156,8 +188,11 @@ class IronAgent:
         )
         
         # Step E: Generate Rewritten Response
-        final_response = self.llm.generate_response(
-            model_name=self.soul.base_model,
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": self.agent_name, "step": "REWRITE"})
+
+        final_response = self._generate_with_retry(
             system_prompt=rewrite_prompt,
             user_message=user_message
         )
@@ -165,4 +200,7 @@ class IronAgent:
         # Step F: Final Clean
         cleaned_response = clean_agent_response(final_response, self.agent_name)
         
-        return cleaned_response
+        return {
+            "public_text": cleaned_response,
+            "hidden_text": hidden_thought
+        }
