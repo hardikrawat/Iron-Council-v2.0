@@ -286,8 +286,11 @@ pytest -m "llm" -v
 ```
 
 ### Test Reports
-A comprehensive HTML report with captured logs and local variables is generated at:
-`assets/report.html` (view in browser)
+The pipeline generates two distinct reports to ensure full visibility across phases:
+- `assets/report_fast.html`: Results from Parallel Non-LLM tests.
+- `assets/report_llm.html`: Results from Sequential LLM tests.
+
+*(View both in your browser for a complete system overview)*
 
 ---
 
@@ -297,6 +300,8 @@ A comprehensive HTML report with captured logs and local variables is generated 
 IronCouncil/
 ├── agents/                      # Persistent agent soul states
 ├── assets/                      # [NEW] Test reports and generated assets (Gitignored)
+│   ├── report_fast.html        # Mechanical/Parallel test results
+│   └── report_llm.html         # LLM/Sequential test results
 ├── core/                        # Simulation engine
 │   ├── event_bus.py            # Async Pub/Sub system
 │   ├── heartbeat.py            # System clock & Mutex lock
