@@ -16,7 +16,7 @@
     },
     "relationships": {
         "General Ares": {
-            "trust_score": -10,
+            "trust_score": -20,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
@@ -26,7 +26,7 @@
             "hidden_agenda": null
         },
         "Banker Midas": {
-            "trust_score": -3,
+            "trust_score": -5,
             "last_interaction_summary": "",
             "hidden_agenda": null
         }

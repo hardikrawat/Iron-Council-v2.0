@@ -12,7 +12,7 @@
         "paranoia": 10,
         "loyalty_to_chairman": 40,
         "stress_level": 15,
-        "energy": 100
+        "energy": 92
     },
     "relationships": {
         "Diplomat Dove": {
@@ -21,12 +21,12 @@
             "hidden_agenda": "Undermining peace talks to maintain military dominance"
         },
         "Banker Midas": {
-            "trust_score": 30,
+            "trust_score": 35,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Analyst Logic": {
-            "trust_score": -12,
+            "trust_score": -22,
             "last_interaction_summary": "",
             "hidden_agenda": null
         }

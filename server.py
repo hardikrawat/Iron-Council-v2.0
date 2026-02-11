@@ -243,6 +243,7 @@ async def bridge_system_tick(payload: dict):
 async def bridge_activity_event(payload: dict, event_type: str):
     """
     Bridges MEMORY_ACCESS and LLM_ACTIVITY events to the WebSocket.
+    Also pipes them into the SystemLogger for the Watchdog terminal.
     """
     ws_payload = {
         "type": "activity_event",
@@ -250,6 +251,12 @@ async def bridge_activity_event(payload: dict, event_type: str):
         "data": payload
     }
     await manager.broadcast(ws_payload)
+
+    # Pipe to Watchdog Terminal
+    agent = payload.get("agent", "SYS")
+    detail = payload.get("step") or payload.get("op") or payload.get("type", "EXE")
+    log_msg = f"{event_type}_{detail}_{agent}"
+    await SystemLogger.log("BIOS", log_msg, "INFO")
 
 # --- SYSTEM LOGGER & KEEPALIVE ---
 main_loop = None

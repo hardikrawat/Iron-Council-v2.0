@@ -8,20 +8,20 @@
         "Nuance"
     ],
     "dynamic_stats": {
-        "confidence": 60,
-        "paranoia": 40,
-        "loyalty_to_chairman": 80,
-        "stress_level": 10,
-        "energy": 100
+        "confidence": 65,
+        "paranoia": 30,
+        "loyalty_to_chairman": 75,
+        "stress_level": 30,
+        "energy": 92
     },
     "relationships": {
         "General Ares": {
-            "trust_score": -30,
+            "trust_score": -40,
             "last_interaction_summary": "",
             "hidden_agenda": "Building coalition to limit military spending"
         },
         "Banker Midas": {
-            "trust_score": 3,
+            "trust_score": 0,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
