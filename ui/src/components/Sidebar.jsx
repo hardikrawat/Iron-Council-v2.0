@@ -40,7 +40,7 @@ const AgentMonitor = ({ agent, onOpenGraph }) => {
     );
 };
 
-const WatchdogTerminal = ({ logs = [], statusText, activeAgents = {} }) => {
+const WatchdogTerminal = ({ logs = [], statusText, activeAgents = {}, heartbeatStats }) => {
     const bottomRef = useRef(null);
     const [spinner, setSpinner] = useState(0);
     const frames = ['|', '/', '-', '\\'];
@@ -99,15 +99,16 @@ const WatchdogTerminal = ({ logs = [], statusText, activeAgents = {} }) => {
 
             {/* Footer / Status Line */}
             <div className="bg-white border-t border-gray-300 p-1 text-[8px] text-gray-500 flex justify-between uppercase">
-                <span>MEM: 64MB OK</span>
-                <span>UPTIME: {Math.floor(performance.now() / 1000)}s</span>
+                <span>MEM: {heartbeatStats?.mem || "64MB"} OK</span>
+                <span>UPTIME: {heartbeatStats?.uptime || 0}S</span>
             </div>
         </div>
     );
 };
 
-const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, onOpenGraph }) => {
+const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbeatStats, onOpenGraph }) => {
     const [spinnerIndex, setSpinnerIndex] = useState(0);
+    const [isPulsing, setIsPulsing] = useState(false);
     const diaryRef = useRef(null);
     const spinnerFrames = ['|', '/', '-', '\\'];
 
@@ -123,6 +124,13 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, onOpenGr
             diaryRef.current.scrollTop = diaryRef.current.scrollHeight;
         }
     }, [posts]);
+
+    // Handle pulse animation on heartbeat
+    useEffect(() => {
+        setIsPulsing(true);
+        const timer = setTimeout(() => setIsPulsing(false), 800);
+        return () => clearTimeout(timer);
+    }, [heartbeatStats?.uptime]);
 
     const handleDownload = () => {
         const logData = {
@@ -150,7 +158,10 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, onOpenGr
                 if (p.type === 'dream') return p.data;
                 return { agent: p.agentName, content: p.content };
             }),
-            backend_terminal_logs: systemLogs
+            backend_terminal_logs: systemLogs.filter(log => {
+                const blacklist = ["System nominal.", "Integrity check passed.", "Watching...", "Ping.", "Cycle complete."];
+                return !blacklist.some(b => log.includes(b));
+            })
         };
 
         const blob = new Blob([JSON.stringify(logData, null, 2)], { type: 'application/json' });
@@ -171,7 +182,10 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, onOpenGr
             {/* Header / Brand */}
             <div className="bg-[#1e293b] text-white p-2 flex justify-between items-center border-b-2 border-black">
                 <span className="text-[10px] font-bold tracking-tighter">COUNCIL_MONITOR_v2.0</span>
-                <span className="text-[9px] font-mono text-cyan-400">{statusText.includes("READY") ? "CONNECTED" : "ACTIVE"}</span>
+                <div className="flex items-center gap-1.5">
+                    <div className={`w-1.5 h-1.5 rounded-full ${isPulsing ? 'bg-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.8)]' : 'bg-cyan-900'} transition-all duration-300`}></div>
+                    <span className="text-[9px] font-mono text-cyan-400">{statusText.includes("READY") ? "CONNECTED" : "ACTIVE"}</span>
+                </div>
             </div>
 
             {/* 1. AGENT_MONITORS Area */}
@@ -261,7 +275,15 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, onOpenGr
             {/* 4. SYSTEM_STATUS & DOWNLOAD Area */}
             <div className="p-2 border-t border-claw-border bg-gray-100 mt-auto flex flex-col gap-2 flex-none">
                 {/* REPLACED: Watchdog Terminal */}
-                <WatchdogTerminal logs={systemLogs} statusText={statusText} activeAgents={activeAgents} />
+                <WatchdogTerminal
+                    logs={systemLogs.filter(log => {
+                        const blacklist = ["System nominal.", "Integrity check passed.", "Watching...", "Ping.", "Cycle complete."];
+                        return !blacklist.some(b => log.includes(b));
+                    })}
+                    statusText={statusText}
+                    activeAgents={activeAgents}
+                    heartbeatStats={heartbeatStats}
+                />
 
                 <button
                     onClick={handleDownload}

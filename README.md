@@ -8,15 +8,44 @@
 
 ---
 
+## Documentation
+
+For a deep dive into the system's design, including the Event-Driven Architecture, Physics Engine, and Heartbeat mechanism, please see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+```mermaid
+graph TD
+    User[User / Chairman] -->|Input| EventBus
+    Heartbeat[Heartbeat / Clock] -->|Tick| EventBus
+    
+    subgraph "The Hive Mind"
+        EventBus -->|Broadcast| OODA_Ares[Ares OODA Loop]
+        EventBus -->|Broadcast| OODA_Midas[Midas OODA Loop]
+        
+        OODA_Ares -->|Decide| Lock{The Conch Mutex}
+        OODA_Midas -->|Decide| Lock
+        
+        Lock -->|Acquired| LLM[LLM Inference]
+        LLM -->|Act| EventBus
+    end
+    
+    EventBus -->|AGENT_SPEAK| PhysicsSystem[Physics System]
+    PhysicsSystem -->|Update| State[(Agent Soul State)]
+    PhysicsSystem -->|Update| Transcript[Session Log]
+    
+    State -->|Stream| UI[React Frontend]
+```
+
 ## The Concept
 
 Unlike traditional multi-agent systems, the **Iron Council** simulates political dynamics through a cognitive architecture where agents **evolve beliefs**, **pursue goals**, and **dream biased memories**:
 
 - **BDI Architecture**: Each agent has Beliefs (relationships with trust scores), Desires (prioritized goals with progress tracking), and Intentions (generated via LLM at runtime).
 
-- **Physics of Consequence**: A background "Gamemaster" engine analyzes every interaction and calculates psychological impact — stats shift, goals advance, and trust between agents rises or falls.
+- **Autonomous OODA Loops**: Each agent runs an independent Observe-Orient-Decide-Act cycle, choosing *when* and *whether* to speak — no fixed turn order.
 
-- **Separation of Powers**: User-to-agent impact (stats, goals) and agent-to-agent dynamics (trust) are computed in isolated passes to prevent hallucinated conflicts.
+- **Physics of Consequence**: A real-time "Gamemaster" engine listens to the Event Bus and applies deterministic numerical updates — stats shift, goals advance, and trust between agents rises or falls.
+
+- **Entropy & The Conch**: A heartbeat clock injects tension when the council falls silent, and a mutex lock ("The Conch") prevents chaotic overlapping speech.
 
 - **Subjective Memory (Dreaming)**: After sessions, agents "sleep" and write biased diary entries into a vector database. They don't recall chat logs — they recall *feelings*.
 
@@ -37,58 +66,25 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 
 ---
 
-## Architecture
 
-```
-User Input ("Chairman")
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  AGENTS SPEAK (Sequential)                  │
-│  ├─ Recall: Query vector memory (ChromaDB)  │
-│  ├─ Draft: Generate response via LLM        │
-│  └─ Filter: Ego integrity check             │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  PHYSICS: User ↔ Agent (Inline)             │
-│  ├─ Stat changes (confidence, paranoia...)  │
-│  └─ Goal progress updates                  │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  RECONCILIATION: Agent ↔ Agent (Post-Turn)  │
-│  ├─ Semantic alignment analysis             │
-│  ├─ Sarcasm detection                       │
-│  ├─ Vote extraction + conflict penalties    │
-│  └─ Trust delta matrix applied              │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  DREAMING (End of Session)                  │
-│  ├─ Trust deltas injected as context        │
-│  ├─ Chain-of-thought alliance analysis      │
-│  ├─ Subjective diary → vector memory        │
-│  └─ Hidden agenda re-evaluation             │
-└─────────────────────────────────────────────┘
-```
 
 ### Key Components
 
 | Module | File | Purpose |
 |--------|------|---------|
-| **Agent** | `core/agent.py` | Soul state management, memory recall, response generation with ego filter |
-| **Schema** | `core/schema.py` | Pydantic models — `AgentSoul`, `RelationshipModel`, `Goal`, `DynamicStats` |
-| **Physics** | `core/physics.py` | `calculate_impact()` for User↔Agent stats; `reconcile_turn()` for Agent↔Agent trust |
-| **Dreams** | `core/dream.py` | Dream phase with trust-delta injection, interaction summaries, agenda review |
+| **Event Bus** | `core/event_bus.py` | Central nervous system; Async Pub/Sub for all system events |
+| **Heartbeat** | `core/heartbeat.py` | System clock; manages Entropy (Silence) and the "Conch" (Speaking Lock) |
+| **OODA Loop** | `core/ooda.py` | Agent cognitive loop: Observe → Orient → Decide → Act |
+| **Physics** | `core/physics.py` | Deterministic rules engine; calculates Trust Deltas based on votes/sentiment |
+| **Listener** | `core/physics_system.py` | Bridge that updates Trust/Stats in real-time based on Event Bus streams |
+| **Dream** | `core/dream.py` | Offline memory consolidation; generates Hidden Agendas from session transcripts |
+| **Agent** | `core/agent.py` | BDI Soul state management and LLM interface |
 | **Integrity** | `core/integrity.py` | Ego filter — validates responses match agent's emotional state |
+| **Schema** | `core/schema.py` | Pydantic models — `AgentSoul`, `RelationshipModel`, `Goal`, `DynamicStats` |
 | **LLM** | `core/llm.py` | Universal LLM service — OpenAI, Anthropic, Ollama (local) |
 | **Memory** | `memory/store.py` | ChromaDB vector database for subjective memory storage and retrieval |
-| **Server** | `server.py` | FastAPI + WebSocket backend for the visual layer |
-| **Terminal** | `main.py` | CLI entry point with interactive LLM setup walkthrough |
+| **Server** | `server.py` | FastAPI backend + WebSocket Bridge for the frontend |
+| **Terminal** | `main.py` | CLI entry point (legacy turn-based mode) |
 
 ---
 
@@ -206,6 +202,9 @@ alliance. The Chairman seems receptive. I must press harder next session.
 | `LOCAL_MODEL_NAME` | Local model name | `llama3` |
 | `LLM_TIMEOUT` | Request timeout in seconds | `120` |
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
+| `HEARTBEAT_TICK_RATE` | Main loop frequency (seconds) | `2.0` |
+| `SILENCE_THRESHOLD` | Seconds before agents feel "Entropy/Anxiety" | `45` |
+| `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `60` |
 
 ### Agent Soul State
 
@@ -251,7 +250,7 @@ All stats are clamped (0–100 for stats, -100 to +100 for trust). Goals auto-de
 
 ---
 
-## Testing (Still a work in progress!)
+## Testing
 
 ```bash
 pytest tests/ -v
@@ -261,12 +260,16 @@ Test coverage includes:
 
 | Test File | Coverage |
 |-----------|----------|
-| `test_physics.py` | Physics engine — stat changes, goal updates, reconciliation, error handling (16 tests) |
+| `test_physics.py` | Physics engine — stat changes, goal updates, reconciliation, error handling |
+| `test_physics_eda.py` | Event-Driven Physics — stat updates, trust reactions, infinite loop safeguard |
+| `test_lock_race.py` | Heartbeat Conch — TTL expiry, race condition regression |
 | `test_agent_speak.py` | Agent response generation |
 | `test_integrity.py` | Ego filter validation |
 | `test_llm.py` | LLM service routing |
 | `test_memory.py` | ChromaDB memory storage and retrieval |
 | `test_prompting.py` | Prompt construction |
+| `test_visual_logic.py` | Visual layer logic — `speak_visual`, stat serialization |
+| `test_connection.py` | WebSocket connection lifecycle |
 
 ---
 
@@ -284,15 +287,21 @@ IronCouncil/
 │   └── analyst_logic/
 │       └── soul_state.json
 ├── core/                        # Simulation engine
-│   ├── schema.py               # Pydantic models (AgentSoul, RelationshipModel, Goal)
-│   ├── agent.py                # IronAgent — soul state, memory, response generation
-│   ├── llm.py                  # Universal LLM service (OpenAI, Anthropic, Ollama)
-│   ├── physics.py              # Gamemaster physics + reconciliation engine
-│   ├── integrity.py            # Ego filter
-│   └── dream.py                # Dream phase, agenda review, interaction summaries
+│   ├── event_bus.py            # [NEW] Async Pub/Sub system
+│   ├── heartbeat.py            # [NEW] System clock & Mutex lock
+│   ├── ooda.py                 # [NEW] Autonomous Agent Loop
+│   ├── physics_system.py       # [NEW] Real-time Physics Listener
+│   ├── physics.py              # Logic: Trust calculations
+│   ├── agent.py                # Logic: Agent Soul
+│   ├── dream.py                # Logic: Dreams & Diaries
+│   ├── integrity.py            # Logic: Ego filter
+│   ├── llm.py                  # Infrastructure: Model wrapper
+│   └── schema.py               # Data: Pydantic models
 ├── memory/                      # Vector memory system
 │   └── store.py                # ChromaDB subjective memory
-├── ui/                          # Visual layer (React + Tailwind)
+├── docs/                        # Documentation
+│   └── ARCHITECTURE.md         # System architecture deep dive
+├── ui/                          # Visual layer (React)
 │   └── src/
 │       ├── App.jsx             # Main application — WebSocket, streaming, thread view
 │       └── components/
@@ -301,7 +310,7 @@ IronCouncil/
 │           └── SyndicateGraphModal.jsx  # Trust network visualization
 ├── tests/                       # Test suite
 ├── server.py                    # FastAPI + WebSocket backend
-├── main.py                      # Terminal entry point
+├── main.py                      # Terminal entry point (legacy mode)
 ├── reset.py                     # Factory reset utility
 ├── start_visual_council.sh      # Launch script (backend + frontend)
 ├── setup_env.py                 # Interactive environment setup

@@ -36,7 +36,7 @@ const Post = ({ post }) => {
     const hiddenText = isAgent ? post.data.hidden_text : null;
 
     // Integrity mechanic: Visual diff
-    const hasHiddenLayer = isAgent && hiddenText && hiddenText !== publicText;
+    const hasHiddenLayer = isAgent && hiddenText && hiddenText.trim() !== "" && hiddenText !== publicText;
 
     // Visual Assets: Simple Color Block Identicon
     const identiconChar = name[0];

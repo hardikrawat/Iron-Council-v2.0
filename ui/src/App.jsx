@@ -16,6 +16,7 @@ function App() {
     const [showGraphModal, setShowGraphModal] = useState(false);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [systemLogs, setSystemLogs] = useState([]);
+    const [heartbeatStats, setHeartbeatStats] = useState({ uptime: 0, mem: "64.0MB", status: "READY" });
 
     useEffect(() => {
         // Connect to WebSocket
@@ -31,6 +32,8 @@ function App() {
             const msg = JSON.parse(event.data);
             if (msg.type === 'init') {
                 setAgents(msg.data);
+            } else if (msg.type === 'heartbeat_pulse') {
+                setHeartbeatStats(msg.stats);
             } else if (msg.type === 'relationship_update') {
                 // Update relationships specifically 
                 setAgents(prev => prev.map(a => a.id === msg.agent_id ? { ...a, relationships: msg.relationships } : a));
@@ -98,7 +101,7 @@ function App() {
                             name: msg.name,
                             public_text: "",
                             stats: msg.stats,
-                            hidden_text: "..."
+                            hidden_text: ""
                         }
                     }]);
                 }
@@ -204,6 +207,7 @@ function App() {
                 statusText={statusText}
                 activeAgents={activeAgents}
                 systemLogs={systemLogs}
+                heartbeatStats={heartbeatStats}
                 onOpenGraph={handleOpenGraph}
             />
 
