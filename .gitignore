@@ -3,7 +3,7 @@
 *.env
 
 # Python Runtime
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
@@ -28,14 +28,15 @@ db/
 *~
 
 # OS Files
-.DS_Store
-Thumbs.db
+**/.DS_Store
+**/Thumbs.db
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 *.cover
+assets/
 
 # Build artifacts
 dist/

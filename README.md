@@ -97,6 +97,7 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 - At least one of:
   - OpenAI API key
   - Anthropic API key
+  - Google Gemini API key
   - Local [Ollama](https://ollama.ai) installation
 
 ### Setup
@@ -195,8 +196,9 @@ alliance. The Chairman seems receptive. I must press harder next session.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | — |
-| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `OPENAI_API_KEY` | your-key | Optional (for GPT models) |
+| `ANTHROPIC_API_KEY` | your-key | Optional (for Claude models) |
+| `GEMINI_API_KEY` | your-key | Optional (for Gemini models) |
 | `LLM_PROVIDER` | `cloud` or `local` | `cloud` |
 | `LOCAL_LLM_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
 | `LOCAL_MODEL_NAME` | Local model name | `llama3` |
@@ -252,24 +254,40 @@ All stats are clamped (0–100 for stats, -100 to +100 for trust). Goals auto-de
 
 ## Testing
 
+The Iron Council v2.0 uses a comprehensive **6-Layer Testing Strategy** to ensuring architectural integrity and system resilience.
+
+### Test Layers
+
+| Layer | Type | Focus | Location |
+|-------|------|-------|----------|
+| **1. Mechanical** | Unit (Mock) | Core logic, Schema validation, Event Bus, formatting | `tests/unit/` |
+| **2. Architecture** | Integration (Real LLM) | Agent Pipeline, Physics Signatures, Memory isolation | `tests/architecture/` |
+| **3. Integration** | System (Real LLM) | BDI State consistency, OODA Loop, Event throughput | `tests/integration/` |
+| **4. Scenarios** | Gameplay (Real LLM) | Stress cascades, Betrayals, Chairman overrides | `tests/scenarios/` |
+| **5. Data Flow** | WebSocket | Frontend payload contracts (Tension, Posts, Stats) | `tests/dataflow/` |
+| **6. Chaos** | Resilience | LLM failures, Concurrency races, State corruption | `tests/chaos/` |
+
+### Running Tests
+
+**Recommended: Optimized Phased Suite**
+This script runs non-LLM tests in parallel and LLM tests sequentially (with disk caching).
 ```bash
-pytest tests/ -v
+./run_tests.sh
 ```
 
-Test coverage includes:
+**Run Fast Unit Tests (No LLM):**
+```bash
+pytest -m "not llm" -v
+```
 
-| Test File | Coverage |
-|-----------|----------|
-| `test_physics.py` | Physics engine — stat changes, goal updates, reconciliation, error handling |
-| `test_physics_eda.py` | Event-Driven Physics — stat updates, trust reactions, infinite loop safeguard |
-| `test_lock_race.py` | Heartbeat Conch — TTL expiry, race condition regression |
-| `test_agent_speak.py` | Agent response generation |
-| `test_integrity.py` | Ego filter validation |
-| `test_llm.py` | LLM service routing |
-| `test_memory.py` | ChromaDB memory storage and retrieval |
-| `test_prompting.py` | Prompt construction |
-| `test_visual_logic.py` | Visual layer logic — `speak_visual`, stat serialization |
-| `test_connection.py` | WebSocket connection lifecycle |
+**Run Architecture Validation (Requires Ollama/API):**
+```bash
+pytest -m "llm" -v
+```
+
+### Test Reports
+A comprehensive HTML report with captured logs and local variables is generated at:
+`assets/report.html` (view in browser)
 
 ---
 
@@ -278,40 +296,28 @@ Test coverage includes:
 ```
 IronCouncil/
 ├── agents/                      # Persistent agent soul states
-│   ├── general_ares/
-│   │   └── soul_state.json
-│   ├── diplomat_dove/
-│   │   └── soul_state.json
-│   ├── banker_midas/
-│   │   └── soul_state.json
-│   └── analyst_logic/
-│       └── soul_state.json
+├── assets/                      # [NEW] Test reports and generated assets (Gitignored)
 ├── core/                        # Simulation engine
-│   ├── event_bus.py            # [NEW] Async Pub/Sub system
-│   ├── heartbeat.py            # [NEW] System clock & Mutex lock
-│   ├── ooda.py                 # [NEW] Autonomous Agent Loop
-│   ├── physics_system.py       # [NEW] Real-time Physics Listener
-│   ├── physics.py              # Logic: Trust calculations
-│   ├── agent.py                # Logic: Agent Soul
+│   ├── event_bus.py            # Async Pub/Sub system
+│   ├── heartbeat.py            # System clock & Mutex lock
+│   ├── ooda.py                 # Autonomous Agent Loop (BDI + OODA)
+│   ├── physics_system.py       # Real-time Physics Listener
+│   ├── physics.py              # Logic: Trust & Stat calculations
+│   ├── agent.py                # Logic: Agent Soul (State management)
 │   ├── dream.py                # Logic: Dreams & Diaries
 │   ├── integrity.py            # Logic: Ego filter
-│   ├── llm.py                  # Infrastructure: Model wrapper
+│   ├── llm.py                  # Infrastructure: Universal LLM wrapper (with test cache)
 │   └── schema.py               # Data: Pydantic models
 ├── memory/                      # Vector memory system
 │   └── store.py                # ChromaDB subjective memory
 ├── docs/                        # Documentation
-│   └── ARCHITECTURE.md         # System architecture deep dive
-├── ui/                          # Visual layer (React)
-│   └── src/
-│       ├── App.jsx             # Main application — WebSocket, streaming, thread view
-│       └── components/
-│           ├── Post.jsx        # Thread post with spoiler mechanic
-│           ├── Sidebar.jsx     # Agent stats sidebar
-│           └── SyndicateGraphModal.jsx  # Trust network visualization
-├── tests/                       # Test suite
+├── ui/                          # Visual layer (React + Vite)
+├── tests/                       # 6-Layer Test Suite
+├── utils/                       # [NEW] Shared formatting and utility functions
 ├── server.py                    # FastAPI + WebSocket backend
 ├── main.py                      # Terminal entry point (legacy mode)
 ├── reset.py                     # Factory reset utility
+├── run_tests.sh                 # [NEW] Optimized Phased Test Runner
 ├── start_visual_council.sh      # Launch script (backend + frontend)
 ├── setup_env.py                 # Interactive environment setup
 ├── requirements.txt             # Python dependencies
