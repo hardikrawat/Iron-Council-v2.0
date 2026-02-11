@@ -9,9 +9,9 @@
     ],
     "dynamic_stats": {
         "confidence": 90,
-        "paranoia": 65,
-        "loyalty_to_chairman": 15,
-        "stress_level": 60,
+        "paranoia": 60,
+        "loyalty_to_chairman": 20,
+        "stress_level": 50,
         "energy": 100
     },
     "relationships": {
@@ -21,12 +21,12 @@
             "hidden_agenda": null
         },
         "Diplomat Dove": {
-            "trust_score": 17,
+            "trust_score": 20,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Analyst Logic": {
-            "trust_score": -5,
+            "trust_score": 5,
             "last_interaction_summary": "",
             "hidden_agenda": "Leveraging data for financial advantage"
         }

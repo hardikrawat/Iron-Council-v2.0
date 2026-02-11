@@ -59,13 +59,10 @@ class PhysicsSystem:
 
     async def _process_world_event_for_agent(self, agent: IronAgent, content: str):
         try:
-            # Broadcast Physics Sync
-            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"agent": agent.agent_name, "type": "WORLD_IMPACT"})
+            # Broadcast Physics Sync START
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"status": "START", "agent": agent.agent_name, "type": "WORLD_IMPACT"})
 
-            # Physics Calculation
-            # Note: calculate_impact is blocking (calls LLM), so we might want to run in thread
-            # if not already async. calculate_impact uses llm_service.generate_response which is sync.
-            # So we wrap in to_thread.
+            # Physics Calculation - Non-blocking
             impact = await asyncio.to_thread(
                 self.physics.calculate_impact,
                 content, agent.soul
@@ -92,10 +89,19 @@ class PhysicsSystem:
                 "goals": [g.model_dump() for g in agent.soul.goals]
             })
             
+            # Signal Completion for Reaction Gating
+            await self.event_bus.publish(EventType.PHYSICS_COMPLETE, {
+                "agent": agent.agent_name,
+                "type": "WORLD_EVENT",
+                "content": content
+            })
+            
             logger.info(f"[PHYSICS] Updated {agent.soul.name} stats via World Event.")
             
         except Exception as e:
             logger.error(f"Error processing world event for {agent.soul.name}: {e}")
+        finally:
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"status": "END"})
 
     async def on_agent_speak(self, payload: Dict[str, Any]):
         """
@@ -119,7 +125,9 @@ class PhysicsSystem:
         
         entry_data = {
             "name": self._get_soul_name(speaker_name), 
-            "public_text": content
+            "public_text": content,
+            # FIX MAJ-07: Include hidden_text for complete dream phase analysis
+            "hidden_text": payload.get("hidden_text", "")
         }
         await self._append_log({"type": "agent_post", "data": entry_data, "timestamp": timestamp})
 
@@ -139,8 +147,8 @@ class PhysicsSystem:
 
     async def _process_reaction(self, listener: IronAgent, speaker_name: str, content: str):
         try:
-            # Broadcast Physics Sync
-            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"agent": listener.agent_name, "type": "REACTION", "target": speaker_name})
+            # Broadcast Physics Sync START
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"status": "START", "agent": listener.agent_name, "type": "REACTION", "target": speaker_name})
 
             # Fix #9: Resolve agent_id -> soul name so relationships use correct key
             speaker_soul_name = self._get_soul_name(speaker_name)
@@ -168,6 +176,8 @@ class PhysicsSystem:
             
         except Exception as e:
             logger.error(f"Error processing reaction for {listener.soul.name}: {e}")
+        finally:
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"status": "END"})
 
     def _get_soul_name(self, agent_id: str) -> str:
         for a in self.agents:

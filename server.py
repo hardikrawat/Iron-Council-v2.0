@@ -3,9 +3,12 @@ import json
 import logging
 import os
 import datetime
+import glob
 from typing import Dict, List, Optional, Any
 
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Handle broken environment (ChromaDB/Pydantic conflict)
@@ -57,7 +60,7 @@ physics_system: Optional[PhysicsSystem] = None
 # --- SIMULATION ENGINE ---
 class CouncilSimulation:
     def __init__(self, event_bus: EventBus):
-        self.llm = LLMService()
+        self.llm = LLMService(event_bus=event_bus)
         self.physics = GamemasterPhysics(self.llm)
         # No central memory needed here, agents have their own
         
@@ -136,11 +139,16 @@ def load_history(self):
     except Exception as e:
         logger.error(f"Failed to load history: {e}")
 
+# FIX MIN-03: Thread-safe lock for save_history to prevent interleaved writes
+import threading
+_save_history_lock = threading.Lock()
+
 def save_history(self):
     try:
         os.makedirs("db", exist_ok=True)
-        with open("db/visual_session.json", "w") as f:
-            json.dump(self.session_log, f, indent=2)
+        with _save_history_lock:
+            with open("db/visual_session.json", "w") as f:
+                json.dump(self.session_log, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save history: {e}")
 
@@ -167,6 +175,7 @@ async def bridge_events_to_websocket(payload: dict):
                  "hidden_text": hidden_text,
                  "stats": agent.soul.dynamic_stats.model_dump(),
                  "relationships": agent.soul.get_serializable_relationships(),
+                 "goals": [g.model_dump() for g in agent.soul.goals],
                  "timestamp": datetime.datetime.now().isoformat()
              }
              
@@ -191,8 +200,11 @@ async def bridge_silence_warning(payload: dict):
     tension = payload.get("tension", 0)
     log_msg = f"{msg} [TENSION: {tension}%]"
     
-    # Use SystemLogger to broadcast to UI
-    await SystemLogger.log("HEARTBEAT", log_msg, "WARNING")
+    # Use standard logger which broadcasts to UI
+    if tension > 50:
+        logger.warning(f"SILENCE WARNING: {msg} [TENSION: {tension}%]")
+    else:
+        logger.info(f"Silence detected. Tension at {tension}%.")
 
 async def bridge_agent_status(payload: dict):
     """
@@ -255,50 +267,106 @@ async def bridge_activity_event(payload: dict, event_type: str):
     # Pipe to Watchdog Terminal
     agent = payload.get("agent", "SYS")
     detail = payload.get("step") or payload.get("op") or payload.get("type", "EXE")
-    log_msg = f"{event_type}_{detail}_{agent}"
-    await SystemLogger.log("BIOS", log_msg, "INFO")
+    # Standard log call will now be picked up by WebSocketHandler
+    logger.info(f"[{event_type}] {agent} -> {detail}")
 
-# --- SYSTEM LOGGER & KEEPALIVE ---
+# --- LOGGING INFRASTRUCTURE ---
+
+class WebSocketLogHandler(logging.Handler):
+    """
+    Custom logging handler that pipes logs to the SystemLogger buffer
+    and broadcasts them to connected WebSocket clients.
+    """
+    def __init__(self):
+        super().__init__()
+        self.formatter = logging.Formatter("[%(asctime)s] [%(name)s] > %(message)s", datefmt="%H:%M:%S")
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            
+            # Filter out discord/httpx noise if needed, but we want MAXIMAL logging now
+            if "GET /" in msg and "200" in msg: return # Filter http access logs to reduce noise
+            
+            # Store in buffer
+            SystemLogger.log_buffer.append(msg)
+            if len(SystemLogger.log_buffer) > 1000:
+                SystemLogger.log_buffer.pop(0)
+
+            # Broadcast if event loop is running
+            if manager:
+                # We need to schedule this on the main loop
+                # If we are in the main loop, we can await it? No, emit is sync.
+                # We must use create_task/run_coroutine_threadsafe
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                         asyncio.create_task(manager.broadcast({
+                             "type": "system_log",
+                             "content": msg,
+                             "level": record.levelname
+                         }))
+                except RuntimeError:
+                    # Initial setup might happen before loop is running
+                    pass
+
+        except Exception:
+            self.handleError(record)
+
+# Configure Root Logger
+# Remove default basicConfig handlers
+logging.getLogger().handlers = []
+
+# 1. Terminal Handler (Formatted)
+term_handler = logging.StreamHandler()
+term_handler.setLevel(logging.INFO)
+term_formatter = logging.Formatter("[%(asctime)s] [%(name)s] > %(message)s", datefmt="%H:%M:%S")
+term_handler.setFormatter(term_formatter)
+logging.getLogger().addHandler(term_handler)
+
+# 2. WebSocket Handler (The Watchdog Bridge)
+ws_handler = WebSocketLogHandler()
+ws_handler.setLevel(logging.INFO) # Capture everything INFO and above
+logging.getLogger().addHandler(ws_handler)
+
+# Set Root Level
+logging.getLogger().setLevel(logging.INFO)
+
+# Set specific loggers to DEBUG if needed for "Maximal" insights
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING) # Keep uvicorn quiet to let our logs shine
+
+
+# --- SYSTEM LOGGER (Refactored) ---
 main_loop = None
 
 class SystemLogger:
+    """
+    Legacy static accessor for logging, now just a wrapper around standard logging
+    to maintain backward compatibility with existing code calls.
+    """
     log_buffer = [] 
 
     @staticmethod
     async def log(module: str, message: str, level: str = "INFO"):
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        
-        # Blacklist static heartbeat logs
-        blacklist = ["System nominal.", "Integrity check passed.", "Watching...", "Ping.", "Cycle complete."]
-        if message in blacklist:
-            return
-
-        log_entry = f"[{timestamp}] [{module}] > {message}"
-        
-        if level in ["ERROR", "CRITICAL", "MUTINY"]:
-            log_entry += " [CRITICAL]"
-
-        SystemLogger.log_buffer.append(log_entry)
-        if len(SystemLogger.log_buffer) > 1000:
-            SystemLogger.log_buffer.pop(0)
-
-        payload = {
-            "type": "system_log",
-            "content": log_entry,
-            "level": level
-        }
-        
-        if manager:
-             await manager.broadcast(payload)
+        # Map legacy calls to standard logging
+        log_instance = logging.getLogger(module)
+        if level.upper() == "ERROR":
+            log_instance.error(message)
+        elif level.upper() == "WARNING":
+            log_instance.warning(message)
+        elif level.upper() == "CRITICAL":
+            log_instance.critical(message)
+        else:
+            log_instance.info(message)
 
     @staticmethod
     def log_sync(module: str, message: str, level: str = "INFO"):
-        if main_loop and manager:
-            asyncio.run_coroutine_threadsafe(
-                SystemLogger.log(module, message, level),
-                main_loop
-            )
+        # Just call the standard logger, it handles sync emit
+        log_instance = logging.getLogger(module)
+        if level.upper() == "ERROR":
+            log_instance.error(message)
+        else:
+             log_instance.info(message)
 
 async def keepalive_task():
     """
@@ -318,7 +386,8 @@ async def keepalive_task():
             "stats": {
                 "uptime": uptime_seconds,
                 "mem": "64.2MB", # Static for now to match aesthetic or could be dynamic
-                "status": "NORMAL"
+                "status": "NORMAL",
+                "running": heartbeat._running  # FIX AUDIT-4.1: Expose running state for UI sync
             }
         }
         
@@ -344,7 +413,7 @@ async def startup_event():
         event_bus=event_bus,
         physics=simulation.physics,
         agents=simulation.agents,
-        transcript=simulation.session_log, # Shared transcript
+        transcript=simulation.session_log, # Shared mutable reference (Physics appends to this)
         on_update=simulation.save_history  # Save callback
     )
     asyncio.create_task(physics_system.start())
@@ -424,7 +493,7 @@ async def _handle_end_session():
                 await manager.broadcast({
                     "type": "stream_chunk",
                     "agent": agent.agent_name,
-                    "chunk": chunk
+                    "content": chunk
                 })
         except Exception as e:
             logger.error(f"Error streaming dream for {agent.soul.name}: {e}")
@@ -434,16 +503,9 @@ async def _handle_end_session():
         await manager.broadcast({
             "type": "stream_end",
             "agent": agent.agent_name,
-            "full_text": full_dream
-        })
-        
-        # Send dream type for sidebar
-        await manager.broadcast({
-            "type": "dream",
-            "data": {
-                "agent_name": agent.soul.name,
-                "agent_id": agent.agent_name,
-                "entry": full_dream
+            "full_data": {
+                "entry": full_dream,
+                "agent_name": agent.soul.name  # Redundant but helpful for some handlers
             }
         })
         
@@ -505,7 +567,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Send History
         if simulation.session_log:
-             await websocket.send_json({"type": "history", "data": simulation.session_log})
+             # Fix #6: Copying list to prevent "dictionary changed size during iteration" (or list mutation race)
+             safe_log_copy = list(simulation.session_log)
+             await websocket.send_json({"type": "history", "data": safe_log_copy})
 
         while True:
             data = await websocket.receive_text()
@@ -534,7 +598,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # Notify Heartbeat of activity
                 heartbeat.register_activity()
-                await SystemLogger.log("CHAIRMAN", f"Broadcasted: {user_text}", "INFO")
+                logger.info(f"[CHAIRMAN] Broadcasted: {user_text}")
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -554,7 +618,7 @@ async def toggle_heartbeat(active: bool):
             # 2. Resume OODA Loops if they were stopped
             if not active_loops:
                 logger.info("Resuming OODA Loops...")
-                active_loops = [] # clear just in case
+                active_loops = []
                 for agent in simulation.agents:
                     loop = OODALoop(agent, event_bus, heartbeat)
                     active_loops.append(loop)
@@ -569,13 +633,109 @@ async def toggle_heartbeat(active: bool):
              heartbeat.stop() 
              
              # 2. Stop OODA Loops
+             # FIX MAJ-08: Unsubscribe old loops to prevent duplicate callbacks on resume
              logger.info("Pausing OODA Loops...")
              for loop in active_loops:
                  loop._running = False
+                 loop.unsubscribe_all()
              active_loops.clear()
              
              return {"status": "System PAUSED"}
         return {"status": "System ALREADY STOPPED"}
+
+# --- FIX 6.3: Dedicated endpoint to force-release the Conch without killing the system ---
+@app.post("/admin/force_release_conch")
+async def force_release_conch():
+    """Force-releases the speaking lock (Conch) without halting the heartbeat or OODA loops."""
+    owner = heartbeat.conch.owner
+    if owner:
+        logger.warning(f"[ADMIN] Force-releasing Conch from {owner}")
+        heartbeat.conch.owner = None
+        heartbeat.conch.acquired_at = None
+        heartbeat.conch._original_acquired_at = None
+        
+        # Broadcast updated system state so UI reflects immediately
+        await manager.broadcast({
+            "type": "system_state_update",
+            "data": {
+                "tension": heartbeat.global_tension,
+                "conch": {"owner": None, "expires_in": 0}
+            }
+        })
+        # Log it
+        await manager.broadcast({
+            "type": "system_log",
+            "content": f"[{datetime.datetime.now().isoformat()}] [SYSTEM] > Conch FORCE-RELEASED from {owner} by Chairman."
+        })
+        return {"status": f"Conch released from {owner}"}
+    return {"status": "Conch is not held"}
+
+# --- LOGGING ENDPOINTS ---
+@app.get("/logs/download")
+async def download_logs():
+    log_path = "logs/latest.log"
+    # Resolve symlink if possible
+    real_path = log_path
+    if os.path.exists(log_path):
+        real_path = os.path.realpath(log_path)
+    
+    if os.path.exists(real_path):
+        filename = f"IC_SESSION_LOG_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        
+        def iterfile():
+            with open(real_path, mode="rb") as file_like:
+                yield from file_like
+
+        return StreamingResponse(iterfile(), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    else:
+        # Fallback
+        try:
+            list_of_files = glob.glob('logs/*.log') 
+            if list_of_files:
+                latest_file = max(list_of_files, key=os.path.getctime)
+                filename = os.path.basename(latest_file)
+                
+                def iterfile_latest():
+                    with open(latest_file, mode="rb") as file_like:
+                        yield from file_like
+                        
+                return StreamingResponse(iterfile_latest(), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
+        except Exception as e:
+            logger.error(f"Error finding log file: {e}")
+            pass
+    
+    raise HTTPException(status_code=404, detail="Log file not found")
+
+@app.get("/logs/size")
+async def get_log_size():
+    log_path = "logs/latest.log"
+    size_bytes = 0
+    
+    real_path = log_path
+    if os.path.exists(log_path):
+        real_path = os.path.realpath(log_path)
+
+    if os.path.exists(real_path):
+        size_bytes = os.path.getsize(real_path)
+    else:
+        # Try finding latest
+        try:
+            list_of_files = glob.glob('logs/*.log')
+            if list_of_files:
+                 latest_file = max(list_of_files, key=os.path.getctime)
+                 size_bytes = os.path.getsize(latest_file)
+        except Exception:
+            pass
+            
+    # Format size
+    if size_bytes < 1024:
+        size_str = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size_str = f"{size_bytes / 1024:.1f} KB"
+    else:
+        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+        
+    return {"size_bytes": size_bytes, "size_formatted": size_str}
 
 if __name__ == "__main__":
     import uvicorn

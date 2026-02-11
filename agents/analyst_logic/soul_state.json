@@ -16,17 +16,17 @@
     },
     "relationships": {
         "General Ares": {
-            "trust_score": -20,
+            "trust_score": -10,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Diplomat Dove": {
-            "trust_score": 15,
+            "trust_score": 10,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Banker Midas": {
-            "trust_score": -5,
+            "trust_score": 0,
             "last_interaction_summary": "",
             "hidden_agenda": null
         }

@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import tempfile
 from typing import List, Dict
 from core.schema import AgentSoul
 from core.llm import LLMService
@@ -18,7 +19,7 @@ class IronAgent:
         self.soul = self._load_soul()
         
         # Initialize services
-        self.llm = LLMService()
+        self.llm = LLMService(event_bus=event_bus)
         self.integrity = IntegrityMonitor(self.llm, event_bus=event_bus)
         self.memory = SubjectiveMemory(event_bus=event_bus)
 
@@ -34,13 +35,28 @@ class IronAgent:
     def save_state(self):
         """
         Dumps self.soul back to the JSON file to persist changes.
+        FIX AUDIT-2.1: Atomic write via tempfile + os.replace to prevent corruption.
         """
         if self.event_bus:
             from core.event_bus import EventType
-            self.event_bus.publish_threadsafe(EventType.STATE_SAVE, {"agent": self.agent_name})
+            self.event_bus.publish_threadsafe(EventType.STATE_SAVE, {"agent": self.agent_name, "op": "SAVE"})
 
-        with open(self.state_path, "w") as f:
-            f.write(self.soul.model_dump_json(indent=4))
+        # Check goal completion before saving
+        completed_goals = self.soul.check_goal_completion()
+        if completed_goals:
+            logger.info(f"[AGENT: {self.agent_name}] Completed goals: {completed_goals}")
+            
+        state_dir = os.path.dirname(self.state_path)
+        fd, temp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(self.soul.model_dump_json(indent=4))
+            os.replace(temp_path, self.state_path)
+        except Exception:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
+        logger.info(f"[AGENT: {self.agent_name}] State saved to disk.")
 
     def construct_system_prompt(self) -> str:
         """
@@ -175,6 +191,7 @@ class IronAgent:
         
         # Step C: The Gate
         if check.get("approved"):
+            logger.info(f"[AGENT: {self.agent_name}] Ego APPROVED draft. Speaking directly.")
             return {
                 "public_text": clean_agent_response(draft, self.agent_name),
                 "hidden_text": ""  # No conflict, no hidden thought needed? Or we could put the draft here?
@@ -183,7 +200,8 @@ class IronAgent:
         # Step D: Rewrite
         critique = check.get("critique", "No critique provided.")
         hidden_thought = f"[REJECTED DRAFT]: {draft}\n[CRITIQUE]: {critique}"
-        print(f"[DEBUG] Ego Critique: {critique}")
+        # print(f"[DEBUG] Ego Critique: {critique}")
+        logger.info(f"[AGENT: {self.agent_name}] Ego REJECTED draft. Critique: {critique}")
         
         rewrite_prompt = (
             f"{system_prompt}\n\n"

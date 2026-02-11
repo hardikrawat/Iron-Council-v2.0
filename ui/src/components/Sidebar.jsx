@@ -9,15 +9,21 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
     const currentStatus = status?.status || "IDLE";
     const statusDetails = status?.details || "";
     const phase = status?.phase || ""; // O, O, D, A
-    const isActing = ["ACTING", "THINKING"].includes(currentStatus);
+    // FIX 6.2: Expanded to show text overlay for all active OODA statuses, not just ACTING/THINKING
+    const isActing = ["ACTING", "THINKING", "OBSERVING", "ORIENTING", "DECIDING", "FEELING", "RECHARGING", "RECALLING"].includes(currentStatus);
     const isWaiting = currentStatus === "WAITING_FOR_LOCK";
 
-    // Determine status color
+    // Determine status color — FIX 6.2: Added colors for all OODA phases
     let statusColor = "bg-gray-100 text-gray-500";
     if (currentStatus === "THINKING") statusColor = "bg-yellow-100 text-yellow-800 animate-pulse";
     if (currentStatus === "ACTING") statusColor = "bg-red-100 text-red-800 font-bold";
     if (currentStatus === "WAITING_FOR_LOCK") statusColor = "bg-blue-50 text-blue-600";
     if (currentStatus === "OBSERVING") statusColor = "bg-green-50 text-green-700";
+    if (currentStatus === "ORIENTING") statusColor = "bg-gray-100 text-gray-600";
+    if (currentStatus === "DECIDING") statusColor = "bg-gray-100 text-gray-600";
+    if (currentStatus === "RECALLING") statusColor = "bg-purple-50 text-purple-700 animate-pulse";
+    if (currentStatus === "FEELING") statusColor = "bg-pink-50 text-pink-700 animate-pulse";
+    if (currentStatus === "RECHARGING") statusColor = "bg-amber-50 text-amber-700";
 
     // Get top active goal
     const topGoal = goals?.find(g => g.active && g.progress < 100) || { description: "No active goals", progress: 0 };
@@ -41,7 +47,7 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
                     const isActive = phase === p && (
                         (i === 0 && currentStatus === "OBSERVING") ||
                         (i === 1 && currentStatus === "ORIENTING") ||
-                        (i === 2 && currentStatus === "DECIDING") ||
+                        (i === 2 && (currentStatus === "DECIDING" || currentStatus === "RECALLING")) ||
                         (i === 3 && (currentStatus === "ACTING" || currentStatus === "THINKING" || currentStatus === "WAITING_FOR_LOCK"))
                     );
                     return (
@@ -119,25 +125,32 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
 
     // Tension Bar
     const tension = systemState?.tension || 0;
-    const [isPaused, setIsPaused] = useState(false);
+    // FIX AUDIT-4.1: Derive paused state from backend heartbeat pulse instead of local state
+    const isPaused = heartbeatStats?.running === false;
 
-    // Toggle Function
+    // Toggle Global System (Heartbeat + OODA)
     const toggleSystem = async () => {
         try {
-            const newState = !isPaused; // If paused (true), we want to active (true/start). Wait, logic inverse?
             // API: active=true means START. active=false means STOP.
-            // visual isPaused=true means STOPPED.
+            // isPaused (derived from !running) means STOPPED.
             // So if paused, we want to START (active=true).
             const activeParam = isPaused;
 
             await fetch(`http://localhost:8000/admin/toggle_heartbeat?active=${activeParam}`, { method: 'POST' });
-            setIsPaused(!isPaused);
+            // No local state update needed — next heartbeat_pulse will carry the truth
         } catch (e) {
             console.error("Failed to toggle system:", e);
         }
     };
 
-
+    // FIX 6.3: Force-release only the Conch without halting the system
+    const releaseConch = async () => {
+        try {
+            await fetch(`http://localhost:8000/admin/force_release_conch`, { method: 'POST' });
+        } catch (e) {
+            console.error("Failed to release conch:", e);
+        }
+    };
 
     // Conch Info
     const conchOwner = systemState?.conch?.owner;
@@ -175,9 +188,9 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
             </div>
 
             {conchOwner ? (
-                <div className="bg-red-50 border-2 border-red-500 p-1 text-center animate-pulse shadow-sharp cursor-pointer hover:bg-red-100" onClick={toggleSystem}>
+                <div className="bg-red-50 border-2 border-red-500 p-1 text-center animate-pulse shadow-sharp cursor-pointer hover:bg-red-100" onClick={releaseConch}>
                     <span className="font-bold text-red-800 text-[8px]">⚠ CHANNEL LOCKED: {conchOwner}</span>
-                    <span className="block text-[7px] text-red-600 mt-0.5">CLICK TO FORCE HALT</span>
+                    <span className="block text-[7px] text-red-600 mt-0.5">CLICK TO FORCE RELEASE</span>
                 </div>
             ) : (
                 <div
@@ -201,22 +214,25 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
 const HardwareMonitor = ({ activity = {} }) => {
     const [ledStatus, setLedStatus] = useState({ disk: false, llm: false, net: false, ego: false, phys: false, heart: false });
 
-    // HEART Pulse
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setLedStatus(prev => ({ ...prev, heart: true }));
-            setTimeout(() => setLedStatus(prev => ({ ...prev, heart: false })), 150);
-        }, 2000);
-        return () => clearInterval(interval);
-    }, []);
-
     useEffect(() => {
         if (activity.disk) {
             setLedStatus(prev => ({ ...prev, disk: true }));
-            const t = setTimeout(() => setLedStatus(prev => ({ ...prev, disk: false })), 100);
+            const duration = activity.disk_save ? 400 : 100;
+            const t = setTimeout(() => setLedStatus(prev => ({ ...prev, disk: false })), duration);
             return () => clearTimeout(t);
         }
     }, [activity.disk]);
+
+    // HEART Pulse speed depends on Tension
+    useEffect(() => {
+        if (!activity.heart) return;
+        setLedStatus(prev => ({ ...prev, heart: true }));
+        // Faster pulse if tension is high (clamped between 50ms and 200ms)
+        const tension = activity.tension || 0;
+        const duration = Math.max(50, 200 - (tension * 1.5));
+        const timeout = setTimeout(() => setLedStatus(prev => ({ ...prev, heart: false })), duration);
+        return () => clearTimeout(timeout);
+    }, [activity.heart, activity.tension]);
 
     useEffect(() => {
         if (activity.llm) {
@@ -255,30 +271,43 @@ const HardwareMonitor = ({ activity = {} }) => {
         <div className="p-2 bg-gray-300 border-b border-gray-400 grid grid-cols-3 gap-y-2 gap-x-1 font-mono text-[8px]">
             {/* ROW 1 */}
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.disk ? 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'bg-amber-950'}`}></div>
+                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.disk ? 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'bg-amber-950'}`}></div>
                 <span className="text-gray-600">DISK</span>
             </div>
+
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.llm ? 'bg-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.8)]' : 'bg-cyan-950'}`}></div>
-                <span className="text-gray-600">NEURAL</span>
+                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.llm || activity.llm_busy
+                    ? 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]'
+                    : 'bg-cyan-950'
+                    } ${activity.llm_busy ? 'animate-pulse' : ''}`}></div>
+                <span className="text-cyan-700">NEURAL</span>
             </div>
+
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.ego ? 'bg-fuchsia-500 shadow-[0_0_5px_rgba(217,70,239,0.8)]' : 'bg-fuchsia-950'}`}></div>
-                <span className="text-gray-600">EGO</span>
+                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.ego || activity.ego_busy
+                    ? 'bg-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.8)]'
+                    : 'bg-fuchsia-950'
+                    } ${activity.ego_busy ? 'animate-pulse' : ''}`}></div>
+                <span className="text-fuchsia-700">EGO</span>
             </div>
 
             {/* ROW 2 */}
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.phys ? 'bg-blue-400 shadow-[0_0_5px_rgba(96,165,250,0.8)]' : 'bg-blue-950'}`}></div>
-                <span className="text-gray-600">PHYS</span>
+                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.phys || activity.phys_busy
+                    ? 'bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]'
+                    : 'bg-blue-950'
+                    } ${activity.phys_busy ? 'animate-pulse' : ''}`}></div>
+                <span className="text-blue-700">PHYS</span>
             </div>
+
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.net ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.8)]' : 'bg-green-950'}`}></div>
-                <span className="text-gray-600">UPLINK</span>
+                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.net ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.8)]' : 'bg-green-950'}`}></div>
+                <span className="text-gray-600">NET</span>
             </div>
+
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.heart ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.8)]' : 'bg-red-950'}`}></div>
-                <span className="text-gray-600">CORE</span>
+                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.heart ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]' : 'bg-red-950'}`}></div>
+                <span className="text-gray-600">HEART</span>
             </div>
         </div>
     );
@@ -406,47 +435,27 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
         return () => clearTimeout(timer);
     }, [heartbeatStats?.uptime]);
 
-    const handleDownload = () => {
-        const logData = {
-            session_manifest: {
-                generator: "IRON_COUNCIL_V2.0_RESEARCH_CORE",
-                timestamp: new Date().toISOString(),
-                session_id: Math.floor(Math.random() * 1000000)
-            },
-            agent_data: agents.map(a => ({
-                identity: { name: a.name, id: a.id },
-                soul_state: a.full_soul || a, // Use full extraction if available, else fallback
-                final_trust_scores: a.relationships
-            })),
-            council_thread: posts.map(p => {
-                if (p.type === 'user') return { role: "CHAIRMAN", content: p.content };
-                if (p.type === 'agent_post') return {
-                    role: p.data.name,
-                    content: p.data.public_text,
-                    hidden_thought: p.data.hidden_text,
-                    stats_at_time: p.data.stats
-                };
-                return null;
-            }).filter(Boolean),
-            subconscious_repository: posts.filter(p => p.type === 'dream' || p.type === 'dream_stream').map(p => {
-                if (p.type === 'dream') return p.data;
-                return { agent: p.agentName, content: p.content };
-            }),
-            backend_terminal_logs: systemLogs.filter(log => {
-                const blacklist = ["System nominal.", "Integrity check passed.", "Watching...", "Ping.", "Cycle complete."];
-                return !blacklist.some(b => log.includes(b));
-            })
+    // Log Size Polling
+    const [logSize, setLogSize] = useState("0 B");
+    useEffect(() => {
+        const fetchSize = async () => {
+            try {
+                const res = await fetch("http://localhost:8000/logs/size");
+                if (res.ok) {
+                    const data = await res.json();
+                    setLogSize(data.size_formatted);
+                }
+            } catch (e) {
+                // silent fail
+            }
         };
+        fetchSize();
+        const interval = setInterval(fetchSize, 5000);
+        return () => clearInterval(interval);
+    }, []);
 
-        const blob = new Blob([JSON.stringify(logData, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `IC_RESEARCH_LOG_${Date.now()}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+    const handleDownload = () => {
+        window.location.href = "http://localhost:8000/logs/download";
     };
 
     const dreamPosts = posts.filter(p => p.type === 'dream' || p.type === 'dream_stream');
@@ -537,7 +546,9 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                         )}
                         {dreamPosts.map((post, idx) => {
                             if (post.type === 'dream') {
-                                return post.data.map((entry, i) => (
+                                // FIX: Handle both single entry (object) and multiple entries (array)
+                                const entries = Array.isArray(post.data) ? post.data : [post.data];
+                                return entries.map((entry, i) => (
                                     <div key={`${idx}-${i}`} className="mb-3 border-b border-gray-100 pb-1 last:border-0 last:pb-0">
                                         <div className="font-mono text-[9px] font-bold text-indigo-900 uppercase mb-0.5">{entry.agent_name}</div>
                                         <div className="italic text-gray-800 leading-relaxed border-l-2 border-indigo-50 pl-2">
@@ -549,7 +560,7 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                             return (
                                 <div key={idx} className="mb-3 border-b border-gray-100 pb-1 last:border-0 last:pb-0">
                                     <div className="font-mono text-[9px] font-bold text-indigo-900 uppercase flex justify-between items-center mb-0.5">
-                                        <span>{post.agentName}</span>
+                                        <span>{post.agentName || post.data?.name || "Unknown"}</span>
                                         {post.isStreaming && <span className="text-[8px] animate-pulse">RECEIVING... {spinnerFrames[spinnerIndex]}</span>}
                                     </div>
                                     <div className="italic text-gray-800 leading-relaxed border-l-2 border-indigo-50 pl-2">
@@ -574,6 +585,10 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                         heartbeatStats={heartbeatStats}
                     />
 
+                    <div className="flex justify-between items-end mb-1 px-1 font-mono">
+                        <span className="text-[7px] text-gray-500">BUFFER_SIZE:</span>
+                        <span className="text-[9px] font-bold text-gray-700">{logSize}</span>
+                    </div>
                     <button
                         onClick={handleDownload}
                         className="w-full bg-[#af0a0f] text-white font-bold py-1 px-2 text-[10px] uppercase tracking-widest shadow-sharp hover:bg-red-800 transition-colors border border-black active:shadow-none translate-x-[1px] translate-y-[1px] active:translate-x-[2px] active:translate-y-[2px]"

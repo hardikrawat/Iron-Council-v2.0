@@ -64,7 +64,20 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+
 echo -e "${BLUE}--- IRON COUNCIL SYSTEM INITIALIZATION ---${NC}"
+
+# --- LOGGING SETUP ---
+mkdir -p logs
+LOG_FILE="logs/session_$(date +%Y%m%d_%H%M%S).log"
+# Create 'latest.log' symlink for easy access
+ln -sf "$(pwd)/$LOG_FILE" "$(pwd)/logs/latest.log"
+
+echo "Recording full session logs to: $LOG_FILE"
+
+# Redirect all stdout/stderr to the log file via tee, keeping it on screen too
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 
 # Trap to kill background processes on exit
 trap 'kill $(jobs -p)' EXIT

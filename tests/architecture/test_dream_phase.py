@@ -25,6 +25,7 @@ def ares_agent_mock():
             self.soul = soul
             self.agent_name = "general_ares"
             self.memory = None
+            self.event_bus = None  # dream.py checks this
             self.llm = LLMService()  # Dream phase should handle None memory gracefully
 
         def save_state(self):
@@ -41,6 +42,7 @@ def dove_agent_mock():
             self.soul = soul
             self.agent_name = "diplomat_dove"
             self.memory = None
+            self.event_bus = None  # dream.py checks this
             self.llm = LLMService()
 
         def save_state(self):

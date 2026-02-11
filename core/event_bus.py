@@ -17,6 +17,7 @@ class EventType(str, Enum):
     LLM_ACTIVITY = "LLM_ACTIVITY"   # Neural/LLM processing
     EGO_CHECK = "EGO_CHECK"         # Identity validation
     PHYSICS_SYNC = "PHYSICS_SYNC"   # Stat/Trust delta calculation
+    PHYSICS_COMPLETE = "PHYSICS_COMPLETE" # Signal that physics processing is done
     STATE_SAVE = "STATE_SAVE"       # Persistence activity
 
 class EventBus:
@@ -47,11 +48,26 @@ class EventBus:
     def subscribe(self, event_type: str, callback: Callable[[Dict[str, Any]], Awaitable[None]]):
         """
         Registers a callback for a specific event type.
+        FIX MIN-01: Duplicate guard — same callback is not registered twice.
         """
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
-        self._subscribers[event_type].append(callback)
-        logger.debug(f"Subscribed to {event_type}")
+        if callback not in self._subscribers[event_type]:
+            self._subscribers[event_type].append(callback)
+            logger.debug(f"Subscribed to {event_type}")
+        else:
+            logger.debug(f"Duplicate subscription skipped for {event_type}")
+
+    def unsubscribe(self, event_type: str, callback: Callable[[Dict[str, Any]], Awaitable[None]]):
+        """
+        Removes a previously registered callback. Used by OODA cleanup (MAJ-08).
+        """
+        if event_type in self._subscribers:
+            try:
+                self._subscribers[event_type].remove(callback)
+                logger.debug(f"Unsubscribed from {event_type}")
+            except ValueError:
+                pass  # Already removed
 
     async def publish(self, event_type: str, payload: Dict[str, Any]):
         """
@@ -60,21 +76,31 @@ class EventBus:
         but awaits callbacks to ensure order if needed).
         """
         if event_type not in self._subscribers:
+            # logger.debug(f"No subscribers for {event_type}") # Too noisy?
             return
 
-        # Create tasks for all subscribers to run concurrently
-        callbacks = self._subscribers[event_type]
-        tasks = []
+        # MAXIMAL LOGGING: Log every event (except system ticks to avoid spam)
+        if event_type != EventType.SYSTEM_TICK:
+            # Summarize payload for log
+            summary = str(payload)[:100] + "..." if len(str(payload)) > 100 else str(payload)
+            logger.info(f"publishing {event_type} -> {summary}")
+
+        # FIX MAJ-02: Create tasks for all subscribers; log exceptions via done callback
+        # FIX AUDIT-1.1: Snapshot list to prevent mutation during iteration
+        callbacks = list(self._subscribers[event_type])
         for callback in callbacks:
             try:
                 task = asyncio.create_task(callback(payload))
                 self.background_tasks.add(task)
-                task.add_done_callback(self.background_tasks.discard)
+                task.add_done_callback(self._handle_task_result)
             except Exception as e:
                 logger.error(f"Error creating task for subscriber: {e}")
 
-        # Task reference is now held in self.background_tasks until complete
-        pass
+    def _handle_task_result(self, task: asyncio.Task):
+        """FIX MAJ-02: Log exceptions from fire-and-forget subscriber tasks."""
+        self.background_tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            logger.error(f"[EventBus] Subscriber raised: {task.exception()}", exc_info=task.exception())
 
     async def publish_sync(self, event_type: str, payload: Dict[str, Any]):
         """

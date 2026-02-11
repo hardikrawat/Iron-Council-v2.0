@@ -108,6 +108,7 @@ Expected Schema:
             # Legacy compat — no longer populated here, but keep key for callers
             impact.setdefault("relationship_changes", {})
 
+            logger.info(f"[PHYSICS] Calculated impact for {agent_name}: Loyalty {impact.get('loyalty_to_chairman_change')}, Stress {impact.get('stress_level_change')}")
             return impact
 
         except json.JSONDecodeError as e:
@@ -158,6 +159,8 @@ Expected Schema:
             # test_alliance_betrayal.py expects result[trust_key] to be the delta
             # The tests inspect the RETURN value look for "trust...".
             # The Architecture doc says returns Dict[str, Dict[str, int]].
+            
+            logger.info(f"[PHYSICS] Granular update: {listener_soul.name} -> {speaker_soul.name} | Delta: {delta}")
             return {listener_soul.name: {speaker_soul.name: delta}}
 
         # Mode 2: Batch
