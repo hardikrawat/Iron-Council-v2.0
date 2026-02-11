@@ -21,6 +21,7 @@ def physics_engine():
     return GamemasterPhysics(llm)
 
 
+@pytest.mark.llm
 class TestDeterministicPhysics:
     """
     Per Architecture: Physics Engine should produce CONSISTENT directional results.

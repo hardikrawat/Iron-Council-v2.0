@@ -20,6 +20,7 @@ def physics_engine():
     return GamemasterPhysics(llm)
 
 
+@pytest.mark.llm
 class TestStressCascade:
     """
     Per Architecture: Mounting pressure should destabilize an agent.

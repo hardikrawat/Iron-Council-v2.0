@@ -21,6 +21,7 @@ def physics_engine():
     return GamemasterPhysics(llm)
 
 
+@pytest.mark.llm
 class TestChairmanAuthority:
     """Per Architecture: Chairman has direct authority over the council."""
 

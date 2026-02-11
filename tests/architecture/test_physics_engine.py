@@ -24,6 +24,7 @@ def physics_engine():
     return GamemasterPhysics(llm)
 
 
+@pytest.mark.llm
 class TestPhysicCalculateImpact:
     """
     Per Architecture: calculate_impact(user_input, agent_soul) → stat changes.
@@ -85,6 +86,7 @@ class TestPhysicCalculateImpact:
                     f"Stat change '{key}' = {value} is unreasonably large — Physics should produce bounded increments"
 
 
+@pytest.mark.llm
 class TestPhysicsReconcileTurn:
     """
     Per Architecture: reconcile_turn evaluates Agent↔Agent interactions.

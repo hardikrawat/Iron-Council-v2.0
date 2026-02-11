@@ -269,24 +269,25 @@ The Iron Council v2.0 uses a comprehensive **6-Layer Testing Strategy** to ensur
 
 ### Running Tests
 
-**Run All Tests (Comprehensive):**
+**Recommended: Optimized Phased Suite**
+This script runs non-LLM tests in parallel and LLM tests sequentially (with disk caching).
 ```bash
-pytest tests/ -v
+./run_tests.sh
 ```
 
 **Run Fast Unit Tests (No LLM):**
 ```bash
-pytest tests/unit/ -v
+pytest -m "not llm" -v
 ```
 
 **Run Architecture Validation (Requires Ollama/API):**
 ```bash
-pytest tests/architecture/ -v
+pytest -m "llm" -v
 ```
 
 ### Test Reports
-A detailed gap analysis and validation report is generated after full runs at:
-`tests/REPORT.md`
+A comprehensive HTML report with captured logs and local variables is generated at:
+`assets/report.html` (view in browser)
 
 ---
 
@@ -295,40 +296,28 @@ A detailed gap analysis and validation report is generated after full runs at:
 ```
 IronCouncil/
 ├── agents/                      # Persistent agent soul states
-│   ├── general_ares/
-│   │   └── soul_state.json
-│   ├── diplomat_dove/
-│   │   └── soul_state.json
-│   ├── banker_midas/
-│   │   └── soul_state.json
-│   └── analyst_logic/
-│       └── soul_state.json
+├── assets/                      # [NEW] Test reports and generated assets (Gitignored)
 ├── core/                        # Simulation engine
-│   ├── event_bus.py            # [NEW] Async Pub/Sub system
-│   ├── heartbeat.py            # [NEW] System clock & Mutex lock
-│   ├── ooda.py                 # [NEW] Autonomous Agent Loop
-│   ├── physics_system.py       # [NEW] Real-time Physics Listener
-│   ├── physics.py              # Logic: Trust calculations
-│   ├── agent.py                # Logic: Agent Soul
+│   ├── event_bus.py            # Async Pub/Sub system
+│   ├── heartbeat.py            # System clock & Mutex lock
+│   ├── ooda.py                 # Autonomous Agent Loop (BDI + OODA)
+│   ├── physics_system.py       # Real-time Physics Listener
+│   ├── physics.py              # Logic: Trust & Stat calculations
+│   ├── agent.py                # Logic: Agent Soul (State management)
 │   ├── dream.py                # Logic: Dreams & Diaries
 │   ├── integrity.py            # Logic: Ego filter
-│   ├── llm.py                  # Infrastructure: Model wrapper
+│   ├── llm.py                  # Infrastructure: Universal LLM wrapper (with test cache)
 │   └── schema.py               # Data: Pydantic models
 ├── memory/                      # Vector memory system
 │   └── store.py                # ChromaDB subjective memory
 ├── docs/                        # Documentation
-│   └── ARCHITECTURE.md         # System architecture deep dive
-├── ui/                          # Visual layer (React)
-│   └── src/
-│       ├── App.jsx             # Main application — WebSocket, streaming, thread view
-│       └── components/
-│           ├── Post.jsx        # Thread post with spoiler mechanic
-│           ├── Sidebar.jsx     # Agent stats sidebar
-│           └── SyndicateGraphModal.jsx  # Trust network visualization
-├── tests/                       # Test suite
+├── ui/                          # Visual layer (React + Vite)
+├── tests/                       # 6-Layer Test Suite
+├── utils/                       # [NEW] Shared formatting and utility functions
 ├── server.py                    # FastAPI + WebSocket backend
 ├── main.py                      # Terminal entry point (legacy mode)
 ├── reset.py                     # Factory reset utility
+├── run_tests.sh                 # [NEW] Optimized Phased Test Runner
 ├── start_visual_council.sh      # Launch script (backend + frontend)
 ├── setup_env.py                 # Interactive environment setup
 ├── requirements.txt             # Python dependencies

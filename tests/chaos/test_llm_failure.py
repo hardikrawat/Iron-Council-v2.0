@@ -15,6 +15,7 @@ from core.event_bus import EventBus
 from tests.helpers import SoulFactory
 
 
+@pytest.mark.llm
 class TestLLMFailureResilience:
     """
     Per Architecture: LLM failures should trigger retries or safe fallbacks,

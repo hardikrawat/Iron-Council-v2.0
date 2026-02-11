@@ -102,7 +102,7 @@ class TestSessionLogPersistence:
         Per Architecture: All four agent soul state files must be valid JSON.
         Tests against actual production files.
         """
-        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents")
+        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "agents")
         expected_agents = ["general_ares", "diplomat_dove", "banker_midas", "analyst_logic"]
 
         for agent_name in expected_agents:

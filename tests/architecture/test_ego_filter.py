@@ -23,6 +23,7 @@ def ego_filter():
     return IntegrityMonitor(llm)
 
 
+@pytest.mark.llm
 class TestEgoFilterDecisions:
     """
     Per Architecture: IntegrityMonitor.check_integrity(soul, draft) → {approved, critique, rewrite}.

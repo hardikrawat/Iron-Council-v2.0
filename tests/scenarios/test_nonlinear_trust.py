@@ -62,6 +62,7 @@ class TestTrustDestructionVsRepair:
                 f"Betrayal magnitude ({betrayal_mag}) should be at least half of praise magnitude ({praise_mag})"
 
 
+@pytest.mark.llm
 class TestExtremeTrustPositions:
     """
     Per Architecture: Trust at extremes (-100 or +100) creates behavioral asymmetry.
@@ -117,6 +118,7 @@ class TestExtremeTrustPositions:
                 f"Deep mistrust recovered +{result[trust_key]} from one mild statement — physics is too forgiving"
 
 
+@pytest.mark.llm
 class TestTrustClampingIntegration:
     """
     Per Architecture: Trust must always remain within [-100, +100].

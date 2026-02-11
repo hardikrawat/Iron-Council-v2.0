@@ -75,6 +75,7 @@ def dove_agent_real_llm(event_bus):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+@pytest.mark.llm
 class TestAgentSpeakPipeline:
     """
     Per Architecture: IronAgent.speak() → draft via LLM → integrity check → clean response.
@@ -151,6 +152,7 @@ class TestAgentSpeakPipeline:
             "Agent response starts with meta-dialogue — cleaning pipeline failed"
 
 
+@pytest.mark.llm
 class TestBDIStateInfluence:
     """
     Per README: BDI = Beliefs (relationships), Desires (goals), Intentions (LLM output).

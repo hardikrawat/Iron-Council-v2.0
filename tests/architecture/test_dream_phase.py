@@ -9,6 +9,7 @@ Per README: "Dream phase includes: bias injection, hidden agenda review, memory 
 and architecturally compliant with documented dream phase behavior.
 """
 
+import asyncio
 import pytest
 
 from core.dream import dream_phase, dream_phase_stream, review_agendas
@@ -62,6 +63,7 @@ def session_transcript():
     ]
 
 
+@pytest.mark.llm
 class TestDreamPhaseOutput:
     """
     Per Architecture: dream_phase produces a subjective diary entry.
@@ -110,6 +112,7 @@ class TestDreamPhaseOutput:
         assert_keyword_present(result, session_keywords, min_matches=1)
 
 
+@pytest.mark.llm
 class TestDreamPhaseStream:
     """
     Per Architecture: dream_phase_stream is an async generator for real-time streaming.
@@ -144,6 +147,7 @@ class TestDreamPhaseStream:
         assert len(chunks) > 0, "Dream stream with trust deltas produced no output"
 
 
+@pytest.mark.llm
 class TestDreamAgendaReview:
     """
     Per Architecture: review_agendas updates hidden agendas based on session outcomes.

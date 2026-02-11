@@ -19,6 +19,9 @@ from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
+# Set testing mode for core.llm cache
+os.environ["IRON_COUNCIL_TESTING"] = "1"
+
 # Ensure project root is importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -251,12 +254,5 @@ def all_souls(ares_soul, dove_soul, midas_soul, logic_soul):
     }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def run_async(coro):
-    """Run an async coroutine in sync context."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+# ── End of Fixtures ───────────────────────────────────────────────────────────

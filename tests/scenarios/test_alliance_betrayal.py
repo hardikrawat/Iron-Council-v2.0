@@ -21,6 +21,7 @@ def physics_engine():
     return GamemasterPhysics(llm)
 
 
+@pytest.mark.llm
 class TestAllianceBuilding:
     """Per Architecture: Agreeable interactions should build trust between agents."""
 
@@ -44,6 +45,7 @@ class TestAllianceBuilding:
                 "Endorsement DECREASED trust — Physics Engine misjudging alliance dynamics"
 
 
+@pytest.mark.llm
 class TestBetrayalDynamics:
     """Per Architecture: Hostile speech toward an agent should decrease trust."""
 
@@ -87,6 +89,7 @@ class TestBetrayalDynamics:
                 "Subtle undermining INCREASED trust — Physics Engine not detecting subtle hostility"
 
 
+@pytest.mark.llm
 class TestTrustAsymmetry:
     """Per Architecture: Trust changes can be asymmetric between agents."""
 

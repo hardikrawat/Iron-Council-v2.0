@@ -1,4 +1,5 @@
 import os
+import asyncio
 import time
 import logging
 from typing import Optional, List, Dict
@@ -8,12 +9,52 @@ import re
 from google import genai
 from google.genai import types
 import requests
+import hashlib
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+class TestCache:
+    """Simple disk cache for LLM responses during testing."""
+    def __init__(self, cache_file: str = ".pytest_cache/llm_cache.json"):
+        self.cache_file = Path(cache_file)
+        self.cache_dir = self.cache_file.parent
+        self._data = {}
+        self._load()
+
+    def _load(self):
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "r") as f:
+                    self._data = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load LLM cache: {e}")
+
+    def _save(self):
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.cache_file, "w") as f:
+                json.dump(self._data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save LLM cache: {e}")
+
+    def get(self, model: str, system: str, user: str) -> Optional[str]:
+        key = self._make_key(model, system, user)
+        return self._data.get(key)
+
+    def set(self, model: str, system: str, user: str, response: str):
+        key = self._make_key(model, system, user)
+        self._data[key] = response
+        self._save()
+
+    def _make_key(self, model: str, system: str, user: str) -> str:
+        content = f"{model}|{system}|{user}"
+        return hashlib.sha256(content.encode()).hexdigest()
 
 class LLMService:
     def __init__(self):
@@ -41,6 +82,10 @@ class LLMService:
         
         self.session = requests.Session()
         self.session.headers.update({"Connection": "keep-alive"})
+
+        # Testing Cache
+        self.testing = os.getenv("IRON_COUNCIL_TESTING") == "1"
+        self.cache = TestCache() if self.testing else None
         
         # Aliases for testing and routing
         self._call_openai = self._generate_openai
@@ -52,6 +97,11 @@ class LLMService:
         Generates a response using the specified model.
         Falls back to gpt-3.5-turbo if the request fails (unless local is forced).
         """
+        if self.testing:
+            cached = self.cache.get(model_name, system_prompt, user_message)
+            if cached:
+                return cached
+
         if self.provider_override == "local":
             return self._generate_local(model_name, system_prompt, user_message)
 
@@ -93,6 +143,8 @@ class LLMService:
                 {"role": "user", "content": user_message}
             ]
         )
+        if self.testing:
+            self.cache.set(model_name, system_prompt, user_message, response.choices[0].message.content)
         return response.choices[0].message.content
 
     def _generate_anthropic(self, model_name: str, system_prompt: str, user_message: str) -> str:
@@ -107,6 +159,8 @@ class LLMService:
                 {"role": "user", "content": user_message}
             ]
         )
+        if self.testing:
+            self.cache.set(model_name, system_prompt, user_message, response.content[0].text)
         return response.content[0].text
     
     def _generate_gemini(self, model_name: str, system_prompt: str, user_message: str) -> str:
@@ -125,6 +179,8 @@ class LLMService:
                     ),
                     contents=user_message,
                 )
+                if self.testing:
+                    self.cache.set(model_name, system_prompt, user_message, response.text)
                 return response.text
             except Exception as e:
                 # Check for 429 Resource Exhausted
@@ -376,7 +432,10 @@ class LLMService:
                     response = self.session.post(self.local_url, json=payload, timeout=self.timeout)
                     response.raise_for_status()
                     result = response.json()
-                    return result["message"]["content"]
+                    content = result["message"]["content"]
+                    if self.testing:
+                        self.cache.set(model_name, system_prompt, user_message, content)
+                    return content
                 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                     if attempt < max_retries - 1:
                         time.sleep(backoff_delay)

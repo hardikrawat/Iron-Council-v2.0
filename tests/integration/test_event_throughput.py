@@ -13,10 +13,12 @@ import pytest
 from core.event_bus import EventBus, EventType
 
 
+@pytest.mark.llm
 class TestEventThroughput:
     """Per Architecture: EventBus must handle multiple rapid events without dropping."""
 
-    def test_rapid_fire_events_all_delivered(self, event_bus):
+    @pytest.mark.anyio
+    async def test_rapid_fire_events_all_delivered(self, event_bus):
         """EventBus should deliver all events even when published rapidly."""
         received = []
 
@@ -25,14 +27,14 @@ class TestEventThroughput:
 
         event_bus.subscribe(EventType.WORLD_EVENT, handler)
 
-        async def rapid_publish():
-            for i in range(50):
-                await event_bus.publish(EventType.WORLD_EVENT, {"seq": i})
+        for i in range(50):
+            await event_bus.publish(EventType.WORLD_EVENT, {"seq": i})
 
-        asyncio.get_event_loop().run_until_complete(rapid_publish())
+        await asyncio.sleep(0.1)
         assert len(received) == 50, f"Expected 50 events, got {len(received)} — EventBus dropping events"
 
-    def test_multi_type_concurrent_events(self, event_bus):
+    @pytest.mark.anyio
+    async def test_multi_type_concurrent_events(self, event_bus):
         """EventBus should handle different event types concurrently."""
         world_events = []
         speak_events = []
@@ -51,25 +53,26 @@ class TestEventThroughput:
         event_bus.subscribe(EventType.AGENT_SPEAK, speak_handler)
         event_bus.subscribe(EventType.SYSTEM_TICK, tick_handler)
 
-        async def mixed_publish():
-            for i in range(10):
-                await event_bus.publish(EventType.WORLD_EVENT, {"i": i})
-                await event_bus.publish(EventType.AGENT_SPEAK, {"i": i})
-                await event_bus.publish(EventType.SYSTEM_TICK, {"i": i})
+        for i in range(10):
+            await event_bus.publish(EventType.WORLD_EVENT, {"i": i})
+            await event_bus.publish(EventType.AGENT_SPEAK, {"i": i})
+            await event_bus.publish(EventType.SYSTEM_TICK, {"i": i})
 
-        asyncio.get_event_loop().run_until_complete(mixed_publish())
+        await asyncio.sleep(0.1)
         assert len(world_events) == 10
         assert len(speak_events) == 10
         assert len(tick_events) == 10
 
 
+@pytest.mark.llm
 class TestCrossComponentEventFlow:
     """
     Per Architecture: Events flow across components:
     Chairman → WORLD_EVENT → OODA → AGENT_SPEAK → Physics → AGENT_STATUS → UI
     """
 
-    def test_chained_event_flow(self, event_bus):
+    @pytest.mark.anyio
+    async def test_chained_event_flow(self, event_bus):
         """
         Simulate a chain: WORLD_EVENT triggers a handler that publishes AGENT_SPEAK.
         AGENT_SPEAK triggers a handler that publishes AGENT_STATUS.
@@ -98,9 +101,8 @@ class TestCrossComponentEventFlow:
         event_bus.subscribe(EventType.AGENT_SPEAK, speak_handler)
         event_bus.subscribe(EventType.AGENT_STATUS, status_handler)
 
-        asyncio.get_event_loop().run_until_complete(
-            event_bus.publish(EventType.WORLD_EVENT, {"content": "Chairman speaks"})
-        )
+        await event_bus.publish(EventType.WORLD_EVENT, {"content": "Chairman speaks"})
+        await asyncio.sleep(0.1)  # Allow time for chain processing
         assert "WORLD" in chain_log
         assert "SPEAK" in chain_log
         assert "STATUS" in chain_log

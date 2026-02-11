@@ -12,6 +12,7 @@ import pytest
 from tests.helpers import SoulFactory, assert_keyword_present
 
 
+@pytest.mark.llm
 class TestBDIBeliefConsistency:
     """
     Per Architecture: Beliefs (relationships) directly influence agent behavior.
@@ -30,7 +31,7 @@ class TestBDIBeliefConsistency:
         from unittest.mock import patch
 
         tmpdir = tempfile.mkdtemp()
-        agent_dir = os.path.join(tmpdir, "agents", "general_ares")
+        agent_dir = os.path.join(tmpdir, "general_ares")
         os.makedirs(agent_dir)
 
         soul = SoulFactory.ares(
@@ -45,7 +46,8 @@ class TestBDIBeliefConsistency:
 
         try:
             bus = EventBus()
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+            original_join = os.path.join
+            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
@@ -63,6 +65,7 @@ class TestBDIBeliefConsistency:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+@pytest.mark.llm
 class TestBDIDesireGoalInfluence:
     """
     Per Architecture: Desires (goals) influence agent priorities in speech.
@@ -79,7 +82,7 @@ class TestBDIDesireGoalInfluence:
         from unittest.mock import patch
 
         tmpdir = tempfile.mkdtemp()
-        agent_dir = os.path.join(tmpdir, "agents", "general_ares")
+        agent_dir = os.path.join(tmpdir, "general_ares")
         os.makedirs(agent_dir)
 
         soul = SoulFactory.ares()
@@ -88,12 +91,13 @@ class TestBDIDesireGoalInfluence:
 
         try:
             bus = EventBus()
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+            original_join = os.path.join
+            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
             # Generate system prompt and verify goals are injected
-            prompt = agent._build_system_prompt()
+            prompt = agent.construct_system_prompt()
             assert "budget" in prompt.lower() or "military" in prompt.lower(), \
                 "System prompt does not include agent goals — BDI 'Desire' layer missing"
         finally:

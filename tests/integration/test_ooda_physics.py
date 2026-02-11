@@ -20,6 +20,7 @@ from core.llm import LLMService
 from tests.helpers import SoulFactory
 
 
+@pytest.mark.llm
 class TestOODASubscriptions:
     """
     Per Architecture: OODA loop subscribes to WORLD_EVENT, AGENT_SPEAK, SYSTEM_TICK.
@@ -32,7 +33,7 @@ class TestOODASubscriptions:
         from unittest.mock import patch
 
         tmpdir = tempfile.mkdtemp()
-        agent_dir = os.path.join(tmpdir, "agents", "general_ares")
+        agent_dir = os.path.join(tmpdir, "general_ares")
         os.makedirs(agent_dir)
         soul = SoulFactory.ares()
         with open(os.path.join(agent_dir, "soul_state.json"), "w") as f:
@@ -41,18 +42,20 @@ class TestOODASubscriptions:
         try:
             bus = EventBus()
             hb = Heartbeat(bus)
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+            original_join = os.path.join
+            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
             loop = OODALoop(agent, bus, hb)
-            # OODA should have an event buffer that receives events
-            assert hasattr(loop, "event_buffer") or hasattr(loop, "_event_buffer") or hasattr(loop, "buffer"), \
-                "OODA must have an event buffer to collect incoming events — required by architecture"
+            # OODA should have a memory buffer that receives events
+            assert hasattr(loop, "memory"), "OODA must have a memory component — required by architecture"
+            assert hasattr(loop.memory, "buffer"), "OODA memory must have a buffer — required by architecture"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+@pytest.mark.llm
 class TestPhysicsSystemEventDriven:
     """
     Per Architecture: PhysicsSystem subscribes to WORLD_EVENT and AGENT_SPEAK,
@@ -95,20 +98,22 @@ class TestPhysicsSystemEventDriven:
         assert ps.event_bus is bus, "PhysicsSystem must reference the shared EventBus"
 
 
+@pytest.mark.llm
 class TestOODAPhysicsPipelineIntegration:
     """
     Per Architecture: The full loop is:
     WORLD_EVENT → OODA observes → Agent speaks → AGENT_SPEAK → Physics → stat update → AGENT_STATUS
     """
 
-    def test_world_event_reaches_ooda_buffer(self):
+    @pytest.mark.anyio
+    async def test_world_event_reaches_ooda_buffer(self):
         """Per Architecture: Publishing WORLD_EVENT should populate OODA event buffer."""
         from core.agent import IronAgent
         import tempfile, os, json, shutil
         from unittest.mock import patch
 
         tmpdir = tempfile.mkdtemp()
-        agent_dir = os.path.join(tmpdir, "agents", "general_ares")
+        agent_dir = os.path.join(tmpdir, "general_ares")
         os.makedirs(agent_dir)
         soul = SoulFactory.ares()
         with open(os.path.join(agent_dir, "soul_state.json"), "w") as f:
@@ -117,7 +122,8 @@ class TestOODAPhysicsPipelineIntegration:
         try:
             bus = EventBus()
             hb = Heartbeat(bus)
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+            original_join = os.path.join
+            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
@@ -128,10 +134,10 @@ class TestOODAPhysicsPipelineIntegration:
                 await bus.publish(EventType.WORLD_EVENT, {"content": "Budget cut announcement"})
                 await asyncio.sleep(0.1)
 
-            asyncio.get_event_loop().run_until_complete(test_flow())
+            await test_flow()
             # The event should have been received by the OODA buffer
-            buffer = getattr(loop, "event_buffer", getattr(loop, "_event_buffer", getattr(loop, "buffer", [])))
-            # Buffer may be async but should have stored the event
+            buffer = list(loop.memory.buffer)
+            # Buffer should have stored the event
             assert isinstance(buffer, list), "OODA event buffer should be a list"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
