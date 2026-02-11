@@ -5,6 +5,7 @@
 # --- Core AI & Logic ---
 openai>=1.0.0              # OpenAI GPT API client
 anthropic>=0.18.0          # Anthropic Claude API client
+google-genai>=0.4.0        # Google Gemini API client (new SDK)
 chromadb>=0.4.22           # Vector database for subjective memory
 pydantic>=2.0.0            # Data validation and schema enforcement
 
@@ -16,7 +17,7 @@ colorama>=0.4.6            # Terminal color support (optional)
 # --- Web Backend (Visual Layer) ---
 fastapi>=0.128.0           # ASGI web framework
 uvicorn>=0.40.0            # ASGI server
-websockets>=16.0           # WebSocket support for FastAPI
+websockets>=14.0,<16.0    # WebSocket support for FastAPI (version cap for google-genai compatibility)
 
 # --- Development & Testing (Optional) ---
 # Uncomment to install development dependencies

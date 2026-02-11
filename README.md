@@ -97,6 +97,7 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 - At least one of:
   - OpenAI API key
   - Anthropic API key
+  - Google Gemini API key
   - Local [Ollama](https://ollama.ai) installation
 
 ### Setup
@@ -195,8 +196,9 @@ alliance. The Chairman seems receptive. I must press harder next session.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | — |
-| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `OPENAI_API_KEY` | your-key | Optional (for GPT models) |
+| `ANTHROPIC_API_KEY` | your-key | Optional (for Claude models) |
+| `GEMINI_API_KEY` | your-key | Optional (for Gemini models) |
 | `LLM_PROVIDER` | `cloud` or `local` | `cloud` |
 | `LOCAL_LLM_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
 | `LOCAL_MODEL_NAME` | Local model name | `llama3` |
@@ -252,24 +254,39 @@ All stats are clamped (0–100 for stats, -100 to +100 for trust). Goals auto-de
 
 ## Testing
 
+The Iron Council v2.0 uses a comprehensive **6-Layer Testing Strategy** to ensuring architectural integrity and system resilience.
+
+### Test Layers
+
+| Layer | Type | Focus | Location |
+|-------|------|-------|----------|
+| **1. Mechanical** | Unit (Mock) | Core logic, Schema validation, Event Bus, formatting | `tests/unit/` |
+| **2. Architecture** | Integration (Real LLM) | Agent Pipeline, Physics Signatures, Memory isolation | `tests/architecture/` |
+| **3. Integration** | System (Real LLM) | BDI State consistency, OODA Loop, Event throughput | `tests/integration/` |
+| **4. Scenarios** | Gameplay (Real LLM) | Stress cascades, Betrayals, Chairman overrides | `tests/scenarios/` |
+| **5. Data Flow** | WebSocket | Frontend payload contracts (Tension, Posts, Stats) | `tests/dataflow/` |
+| **6. Chaos** | Resilience | LLM failures, Concurrency races, State corruption | `tests/chaos/` |
+
+### Running Tests
+
+**Run All Tests (Comprehensive):**
 ```bash
 pytest tests/ -v
 ```
 
-Test coverage includes:
+**Run Fast Unit Tests (No LLM):**
+```bash
+pytest tests/unit/ -v
+```
 
-| Test File | Coverage |
-|-----------|----------|
-| `test_physics.py` | Physics engine — stat changes, goal updates, reconciliation, error handling |
-| `test_physics_eda.py` | Event-Driven Physics — stat updates, trust reactions, infinite loop safeguard |
-| `test_lock_race.py` | Heartbeat Conch — TTL expiry, race condition regression |
-| `test_agent_speak.py` | Agent response generation |
-| `test_integrity.py` | Ego filter validation |
-| `test_llm.py` | LLM service routing |
-| `test_memory.py` | ChromaDB memory storage and retrieval |
-| `test_prompting.py` | Prompt construction |
-| `test_visual_logic.py` | Visual layer logic — `speak_visual`, stat serialization |
-| `test_connection.py` | WebSocket connection lifecycle |
+**Run Architecture Validation (Requires Ollama/API):**
+```bash
+pytest tests/architecture/ -v
+```
+
+### Test Reports
+A detailed gap analysis and validation report is generated after full runs at:
+`tests/REPORT.md`
 
 ---
 
