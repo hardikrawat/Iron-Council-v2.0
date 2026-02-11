@@ -128,17 +128,25 @@ cd ui && npm install && cd ..
 
 ### Option A: Visual Layer (Recommended)
 
-Launch both backend and frontend with a single command:
-
-```bash
-./start_visual_council.sh
-```
-
-This starts:
-- **FastAPI server** on `http://localhost:8000`
-- **React frontend** on `http://localhost:5173`
-
 Open `http://localhost:5173` in your browser.
+
+#### Advanced Startup Flags
+
+The launcher supports several flags for automation and service management:
+
+| Flag | Shortcut | Effect |
+|------|----------|--------|
+| `--kill` | `-k` | Kills existing processes on ports 8000 and 5173 before start |
+| `--reset` | `-r` | Triggers a factory reset (state & memory) before start |
+| `--ollama-restart` | `-o` | Restarts the Ollama service to ensure a fresh session |
+| `--open` | `-b` | Automatically opens the browser once systems are online |
+| `--reconfigure` | | Force re-runs the environment setup script |
+| `--help` | `-h` | Shows the Project Banner and usage guide |
+
+**Example:**
+```bash
+./start_visual_council.sh --kill --reset --open
+```
 
 ### Option B: Terminal Mode
 
@@ -163,6 +171,8 @@ Select your LLM provider (1 or 2):
 | *Type normally* | Address the council — all agents respond |
 | `end session` | Trigger the Dream Phase — agents reflect and consolidate memory |
 | `python reset.py` | Factory reset — wipe memories and restore default soul states |
+| `./start_visual_council.sh --kill` | Clean start by clearing busy ports |
+| `./start_visual_council.sh --reset` | Combo start: Reset data then launch council |
 
 ### Example Session
 
@@ -299,7 +309,7 @@ The pipeline generates two distinct reports to ensure full visibility across pha
 ```
 IronCouncil/
 ├── agents/                      # Persistent agent soul states
-├── assets/                      # [NEW] Test reports and generated assets (Gitignored)
+├── assets/                      # Test reports and generated assets (Gitignored)
 │   ├── report_fast.html        # Mechanical/Parallel test results
 │   └── report_llm.html         # LLM/Sequential test results
 ├── core/                        # Simulation engine
@@ -318,11 +328,11 @@ IronCouncil/
 ├── docs/                        # Documentation
 ├── ui/                          # Visual layer (React + Vite)
 ├── tests/                       # 6-Layer Test Suite
-├── utils/                       # [NEW] Shared formatting and utility functions
+├── utils/                       # Shared formatting and utility functions
 ├── server.py                    # FastAPI + WebSocket backend
 ├── main.py                      # Terminal entry point (legacy mode)
 ├── reset.py                     # Factory reset utility
-├── run_tests.sh                 # [NEW] Optimized Phased Test Runner
+├── run_tests.sh                 # Optimized Phased Test Runner
 ├── start_visual_council.sh      # Launch script (backend + frontend)
 ├── setup_env.py                 # Interactive environment setup
 ├── requirements.txt             # Python dependencies

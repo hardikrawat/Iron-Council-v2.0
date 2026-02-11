@@ -16,7 +16,8 @@ class SpeakingLock:
         self.owner: Optional[str] = None
         self.acquired_at: Optional[datetime] = None
         self.ttl = ttl_seconds
-        # No asyncio.Lock needed as operations are atomic in GIL for this purpose
+        # FIX CRIT-01: asyncio.Lock for true atomicity across await points
+        self._async_mutex = asyncio.Lock()
 
     @property
     def current_holder(self) -> Optional[str]:
@@ -31,6 +32,17 @@ class SpeakingLock:
         return (datetime.now() - self.acquired_at).total_seconds() > self.ttl
 
     def acquire(self, agent_name: str) -> bool:
+        """Sync acquire — kept for backward compat with tests and heartbeat tick."""
+        return self._do_acquire(agent_name)
+
+    async def async_acquire(self, agent_name: str) -> bool:
+        """FIX CRIT-01: Async acquire with true mutex protection.
+        Prevents TOCTOU race between owner check and owner assignment."""
+        async with self._async_mutex:
+            return self._do_acquire(agent_name)
+
+    def _do_acquire(self, agent_name: str) -> bool:
+        """Core acquire logic shared by sync and async paths."""
         now = datetime.now()
         
         # Check if current lock is valid
@@ -42,6 +54,7 @@ class SpeakingLock:
                     logger.warning(f"[LOCK] Force-expiring lock held by {self.owner} (TTL {self.ttl}s exceeded)")
                     self.owner = None 
                     self.acquired_at = None
+                    self._original_acquired_at = None
                 else:
                     return False # Lock is busy and valid
             else:
@@ -51,10 +64,21 @@ class SpeakingLock:
         # Take the lock
         self.owner = agent_name
         self.acquired_at = now
+        self._original_acquired_at = now  # FIX AUDIT-1.3: Track original acquisition
         logger.info(f"[LOCK] {agent_name} acquired the Conch.")
         return True
 
     def release(self, agent_name: str):
+        """Sync release — kept for backward compat."""
+        self._do_release(agent_name)
+
+    async def async_release(self, agent_name: str):
+        """FIX CRIT-01: Async release with mutex protection."""
+        async with self._async_mutex:
+            self._do_release(agent_name)
+
+    def _do_release(self, agent_name: str):
+        """Core release logic shared by sync and async paths."""
         if self.owner == agent_name:
             self.owner = None
             self.acquired_at = None
@@ -64,10 +88,16 @@ class SpeakingLock:
             logger.error(f"[LOCK_CRITICAL] {agent_name} tried to release lock owned by {self.owner}!")
             
     def renew(self, agent_name: str):
-        """Allows OODA loop to extend time if LLM is slow."""
+        """Allows OODA loop to extend time if LLM is slow.
+        FIX AUDIT-1.3: Capped at 2x TTL from original acquisition to prevent infinite filibuster."""
         if self.owner == agent_name:
-            self.acquired_at = datetime.now()
-            logger.debug(f"[LOCK] {agent_name} renewed the lock.")
+            now = datetime.now()
+            original = getattr(self, '_original_acquired_at', None) or self.acquired_at
+            if original and (now - original).total_seconds() < self.ttl * 4:
+                self.acquired_at = now
+                logger.debug(f"[LOCK] {agent_name} renewed the lock.")
+            else:
+                logger.warning(f"[LOCK] {agent_name} renewal DENIED — max hold time (4x TTL) exceeded.")
 
 class Heartbeat:
     def __init__(self, event_bus: EventBus):
@@ -80,8 +110,12 @@ class Heartbeat:
     async def start(self):
         self._running = True
         logger.info("Heartbeat started.")
+        # FIX AUDIT-1.2: Drift-compensated timing loop
+        next_tick = time.time()
         while self._running:
-            await asyncio.sleep(TICK_RATE)
+            next_tick += TICK_RATE
+            sleep_time = max(0, next_tick - time.time())
+            await asyncio.sleep(sleep_time)
             await self._tick()
             
     def stop(self):
@@ -120,10 +154,11 @@ class Heartbeat:
         })
 
         # 2. Check Entropy (Silence)
+        # FIX MAJ-01: Skip entropy increment if an agent is actively generating (Conch held)
         now = time.time()
         time_since_activity = now - self.last_activity_timestamp
         
-        if time_since_activity > SILENCE_THRESHOLD:
+        if time_since_activity > SILENCE_THRESHOLD and not self.speaking_lock.is_locked():
             # Only log every 10 seconds or if tension is not yet maxed
             should_log = (self.global_tension < 100) or (int(time_since_activity) % 10 == 0)
             
@@ -136,7 +171,7 @@ class Heartbeat:
             })
             
             if should_log:
-                logger.info(f"Silence Warning! Tension: {self.global_tension}")
+                logger.info(f"[HEARTBEAT] Silence detected. Global Tension increased to {self.global_tension}%.")
 
         # 3. Manage Lock TTL
         if self.speaking_lock.owner and self.speaking_lock.acquired_at:
@@ -151,5 +186,6 @@ class Heartbeat:
         """
         self.last_activity_timestamp = time.time()
         if self.global_tension > 0:
+            old_tension = self.global_tension
             self.global_tension = max(0, self.global_tension - 10)
-            logger.info("Activity detected. Tension decreased.")
+            logger.info(f"[HEARTBEAT] Activity detected. Tension decreased ({old_tension}% -> {self.global_tension}%).")

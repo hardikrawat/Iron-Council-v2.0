@@ -2,12 +2,11 @@ import asyncio
 import json
 import logging
 from typing import List, Dict, Optional
-from memory.store import SubjectiveMemory
 
 logger = logging.getLogger(__name__)
 
-# Initialize the global memory store
-memory_store = SubjectiveMemory()
+# FIX MAJ-09: Removed module-level memory_store singleton.
+# Dream saves now use agent.memory (which has the event_bus) for consistent access.
 
 
 async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None) -> str:
@@ -17,7 +16,14 @@ async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str
     """
     system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
     
+    if agent.event_bus:
+        from core.event_bus import EventType
+        agent.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_SYNTHESIS"})
+
+    is_stream = False
+    
     # Generate the diary entry using the agent's LLM service
+    logger.info(f"[DREAM] Synthesizing dream for {agent.agent_name}...")
     diary_entry = await asyncio.to_thread(
         agent.llm.generate_response,
         model_name=agent.soul.base_model,
@@ -25,10 +31,16 @@ async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str
         user_message=user_message
     )
     
-    # Update interaction summaries based on this agent's own reflection
-    update_interaction_summaries(agent, diary_entry)
+    # FIX CRIT-05: Wrap post-generation steps so a failure doesn't leave partial state
+    try:
+        # Update interaction summaries based on this agent's own reflection
+        update_interaction_summaries(agent, diary_entry)
+        
+        # FIX MAJ-09: Use agent.memory instead of module-level singleton
+        await asyncio.to_thread(_save_dream_memory, agent, diary_entry)
+    except Exception as e:
+        logger.error(f"[DREAM] Post-dream persistence failed for {agent.agent_name}: {e}")
     
-    _save_dream_memory(agent.soul.name, diary_entry)
     return diary_entry
 
 
@@ -39,7 +51,12 @@ async def dream_phase_stream(agent, raw_chat_log: List, trust_deltas: Optional[D
     """
     system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
     
+    if agent.event_bus:
+        from core.event_bus import EventType
+        await agent.event_bus.publish(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_STREAM"})
+
     full_text = ""
+    logger.info(f"[DREAM] Streaming dream for {agent.agent_name}...")
     async for chunk in agent.llm.generate_response_stream(
         model_name=agent.soul.base_model,
         system_prompt=system_prompt,
@@ -48,11 +65,15 @@ async def dream_phase_stream(agent, raw_chat_log: List, trust_deltas: Optional[D
         full_text += chunk
         yield chunk
     
-    # Update interaction summaries based on this agent's own reflection
-    update_interaction_summaries(agent, full_text)
-    
-    # Save the reflection to the agent's memory once complete
-    _save_dream_memory(agent.soul.name, full_text)
+    # FIX CRIT-05: Wrap post-stream operations for atomic behavior
+    try:
+        # Update interaction summaries based on this agent's own reflection
+        update_interaction_summaries(agent, full_text)
+        
+        # FIX MAJ-09: Use agent.memory instead of module-level singleton
+        await asyncio.to_thread(_save_dream_memory, agent, full_text)
+    except Exception as e:
+        logger.error(f"[DREAM] Post-dream persistence failed for {agent.agent_name}: {e}")
 
 
 def _prepare_dream_prompts(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None):
@@ -242,9 +263,27 @@ def update_interaction_summaries(agent, session_summary: str):
             rel.last_interaction_summary = snippet[:150]
 
 
-def _save_dream_memory(agent_name: str, text: str):
-    memory_store.save_memory(
-        agent_name=agent_name,
-        text=text,
-        emotion="reflection"
-    )
+def _save_dream_memory(agent, text: str):
+    """FIX MAJ-09: Uses agent.memory (which has event_bus) instead of module singleton.
+    This ensures MEMORY_ACCESS events are emitted and the Disk LED blinks."""
+    agent_name = agent.soul.name if hasattr(agent, 'soul') else str(agent)
+    logger.info(f"[MEMORY] Saving dream to Subjective Memory for {agent_name}.")
+    try:
+        if hasattr(agent, 'memory') and agent.memory:
+            agent.memory.save_memory(
+                agent_name=agent_name,
+                text=text,
+                emotion="reflection"
+            )
+        else:
+            # Fallback: create a temporary store if agent has no memory
+            from memory.store import SubjectiveMemory
+            fallback_store = SubjectiveMemory()
+            fallback_store.save_memory(
+                agent_name=agent_name,
+                text=text,
+                emotion="reflection"
+            )
+            logger.warning(f"[MEMORY] Used fallback memory store for {agent_name} (no agent.memory)")
+    except Exception as e:
+        logger.error(f"[MEMORY] Failed to save dream memory for {agent_name}: {e}")

@@ -12,6 +12,11 @@ def setup_walkthrough():
     """
     print("\n" + "="*40)
     print("--- IRON COUNCIL SETUP WALKTHROUGH ---")
+    print("--- IRON COUNCIL SETUP WALKTHROUGH ---")
+    print("="*40)
+    print("\nWARNING: You are in LEGACY TERMINAL MODE.")
+    print("For the full Event-Driven experience (Web 1.0 UI), please use 'server.py' or './start_visual_council.sh'.")
+    print(" This mode is for maintenance/debugging only.\n")
     print("="*40)
     print("1. Cloud APIs (OpenAI / Anthropic)")
     print("2. Local Model (Ollama)")
