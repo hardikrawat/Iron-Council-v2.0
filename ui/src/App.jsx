@@ -19,7 +19,7 @@ function App() {
     const [heartbeatStats, setHeartbeatStats] = useState({ uptime: 0, mem: "64.0MB", status: "READY" });
     const [agentStatuses, setAgentStatuses] = useState({});
     const [systemState, setSystemState] = useState({ tension: 0, conch: null });
-    const [activity, setActivity] = useState({ disk: 0, llm: 0, net: 0 });
+    const [activity, setActivity] = useState({ disk: 0, llm: 0, net: 0, ego: 0, phys: 0 });
 
     useEffect(() => {
         // Connect to WebSocket
@@ -67,9 +67,11 @@ function App() {
                     goals: msg.goals // Update goals as well
                 } : a));
             } else if (msg.type === 'activity_event') {
-                const { event } = msg;
-                if (event === 'DISK') setActivity(prev => ({ ...prev, disk: Date.now() }));
-                if (event === 'LLM') setActivity(prev => ({ ...prev, llm: Date.now() }));
+                const { event, data } = msg;
+                if (event === 'DISK') setActivity(prev => ({ ...prev, disk: Date.now(), disk_agent: data?.agent }));
+                if (event === 'LLM') setActivity(prev => ({ ...prev, llm: Date.now(), llm_step: data?.step }));
+                if (event === 'EGO') setActivity(prev => ({ ...prev, ego: Date.now(), ego_agent: data?.agent }));
+                if (event === 'PHYS') setActivity(prev => ({ ...prev, phys: Date.now(), phys_type: data?.type }));
             } else if (msg.type === 'system_log') {
                 const content = msg.content;
                 setSystemLogs(prev => [...prev.slice(-1499), content]);

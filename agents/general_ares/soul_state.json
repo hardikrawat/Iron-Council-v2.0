@@ -9,24 +9,24 @@
     ],
     "dynamic_stats": {
         "confidence": 85,
-        "paranoia": 5,
+        "paranoia": 10,
         "loyalty_to_chairman": 40,
-        "stress_level": 5,
+        "stress_level": 15,
         "energy": 100
     },
     "relationships": {
         "Diplomat Dove": {
-            "trust_score": -58,
+            "trust_score": -47,
             "last_interaction_summary": "",
             "hidden_agenda": "Undermining peace talks to maintain military dominance"
         },
         "Banker Midas": {
-            "trust_score": 42,
+            "trust_score": 30,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Analyst Logic": {
-            "trust_score": -7,
+            "trust_score": -12,
             "last_interaction_summary": "",
             "hidden_agenda": null
         }
@@ -36,7 +36,7 @@
             "description": "Secure military budget increase",
             "priority": "strategic",
             "active": true,
-            "progress": 5
+            "progress": 0
         },
         {
             "description": "Undermine Dove's peace initiative",

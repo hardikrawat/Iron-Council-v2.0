@@ -353,6 +353,9 @@ async def startup_event():
     from functools import partial
     event_bus.subscribe(EventType.MEMORY_ACCESS, partial(bridge_activity_event, event_type="DISK"))
     event_bus.subscribe(EventType.LLM_ACTIVITY, partial(bridge_activity_event, event_type="LLM"))
+    event_bus.subscribe(EventType.EGO_CHECK, partial(bridge_activity_event, event_type="EGO"))
+    event_bus.subscribe(EventType.PHYSICS_SYNC, partial(bridge_activity_event, event_type="PHYS"))
+    event_bus.subscribe(EventType.STATE_SAVE, partial(bridge_activity_event, event_type="DISK"))
     
     # Phase 3: Initialize OODA Loops
     logger.info("Initializing OODA Loops...")

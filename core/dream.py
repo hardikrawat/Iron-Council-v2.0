@@ -17,6 +17,10 @@ async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str
     """
     system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
     
+    if agent.event_bus:
+        from core.event_bus import EventType
+        agent.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_SYNTHESIS"})
+
     # Generate the diary entry using the agent's LLM service
     diary_entry = await asyncio.to_thread(
         agent.llm.generate_response,
@@ -39,6 +43,10 @@ async def dream_phase_stream(agent, raw_chat_log: List, trust_deltas: Optional[D
     """
     system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
     
+    if agent.event_bus:
+        from core.event_bus import EventType
+        await agent.event_bus.publish(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_STREAM"})
+
     full_text = ""
     async for chunk in agent.llm.generate_response_stream(
         model_name=agent.soul.base_model,

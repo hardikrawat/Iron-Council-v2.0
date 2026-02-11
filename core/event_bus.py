@@ -15,6 +15,9 @@ class EventType(str, Enum):
     AGENT_STATUS = "AGENT_STATUS" # Granular activity (Thinking, Idle, etc)
     MEMORY_ACCESS = "MEMORY_ACCESS" # Disk R/W activity
     LLM_ACTIVITY = "LLM_ACTIVITY"   # Neural/LLM processing
+    EGO_CHECK = "EGO_CHECK"         # Identity validation
+    PHYSICS_SYNC = "PHYSICS_SYNC"   # Stat/Trust delta calculation
+    STATE_SAVE = "STATE_SAVE"       # Persistence activity
 
 class EventBus:
     """

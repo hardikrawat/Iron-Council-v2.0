@@ -19,7 +19,7 @@ class IronAgent:
         
         # Initialize services
         self.llm = LLMService()
-        self.integrity = IntegrityMonitor(self.llm)
+        self.integrity = IntegrityMonitor(self.llm, event_bus=event_bus)
         self.memory = SubjectiveMemory(event_bus=event_bus)
 
     def _load_soul(self) -> AgentSoul:
@@ -35,6 +35,10 @@ class IronAgent:
         """
         Dumps self.soul back to the JSON file to persist changes.
         """
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.STATE_SAVE, {"agent": self.agent_name})
+
         with open(self.state_path, "w") as f:
             f.write(self.soul.model_dump_json(indent=4))
 

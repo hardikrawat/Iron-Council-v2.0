@@ -59,6 +59,9 @@ class PhysicsSystem:
 
     async def _process_world_event_for_agent(self, agent: IronAgent, content: str):
         try:
+            # Broadcast Physics Sync
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"agent": agent.agent_name, "type": "WORLD_IMPACT"})
+
             # Physics Calculation
             # Note: calculate_impact is blocking (calls LLM), so we might want to run in thread
             # if not already async. calculate_impact uses llm_service.generate_response which is sync.
@@ -136,6 +139,9 @@ class PhysicsSystem:
 
     async def _process_reaction(self, listener: IronAgent, speaker_name: str, content: str):
         try:
+            # Broadcast Physics Sync
+            await self.event_bus.publish(EventType.PHYSICS_SYNC, {"agent": listener.agent_name, "type": "REACTION", "target": speaker_name})
+
             # Fix #9: Resolve agent_id -> soul name so relationships use correct key
             speaker_soul_name = self._get_soul_name(speaker_name)
             

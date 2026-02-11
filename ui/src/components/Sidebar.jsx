@@ -199,12 +199,27 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
 };
 
 const HardwareMonitor = ({ activity = {} }) => {
-    const [ledStatus, setLedStatus] = useState({ disk: false, llm: false, net: false });
+    const [ledStatus, setLedStatus] = useState({ disk: false, llm: false, net: false, ego: false, phys: false, heart: false });
+    const [biosLines, setBiosLines] = useState(["BOOTING_HARDWARE_MONITOR...", "UPLINK_ESTABLISHED", "READY"]);
+
+    // HEART Pulse (Synced to net activity or just timer)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setLedStatus(prev => ({ ...prev, heart: true }));
+            setTimeout(() => setLedStatus(prev => ({ ...prev, heart: false })), 150);
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const addBiosLine = (line) => {
+        setBiosLines(prev => [line, ...prev.slice(0, 4)]);
+    };
 
     useEffect(() => {
         if (activity.disk) {
             setLedStatus(prev => ({ ...prev, disk: true }));
             const t = setTimeout(() => setLedStatus(prev => ({ ...prev, disk: false })), 100);
+            addBiosLine(`DISK_I/O_ACCESS_${activity.disk_agent || 'SYS'}`);
             return () => clearTimeout(t);
         }
     }, [activity.disk]);
@@ -213,6 +228,7 @@ const HardwareMonitor = ({ activity = {} }) => {
         if (activity.llm) {
             setLedStatus(prev => ({ ...prev, llm: true }));
             const t = setTimeout(() => setLedStatus(prev => ({ ...prev, llm: false })), 150);
+            addBiosLine(`NEURAL_GEN_${activity.llm_step || 'DRAFT'}`);
             return () => clearTimeout(t);
         }
     }, [activity.llm]);
@@ -221,23 +237,66 @@ const HardwareMonitor = ({ activity = {} }) => {
         if (activity.net) {
             setLedStatus(prev => ({ ...prev, net: true }));
             const t = setTimeout(() => setLedStatus(prev => ({ ...prev, net: false })), 100);
+            // Don't log every net pulse to BIOS, too noisy
             return () => clearTimeout(t);
         }
     }, [activity.net]);
 
+    useEffect(() => {
+        if (activity.ego) {
+            setLedStatus(prev => ({ ...prev, ego: true }));
+            const t = setTimeout(() => setLedStatus(prev => ({ ...prev, ego: false })), 200);
+            addBiosLine(`VALIDATING_EGO_${activity.ego_agent}`);
+            return () => clearTimeout(t);
+        }
+    }, [activity.ego]);
+
+    useEffect(() => {
+        if (activity.phys) {
+            setLedStatus(prev => ({ ...prev, phys: true }));
+            const t = setTimeout(() => setLedStatus(prev => ({ ...prev, phys: false })), 100);
+            addBiosLine(`PHYSICS_SYNC_${activity.phys_type}`);
+            return () => clearTimeout(t);
+        }
+    }, [activity.phys]);
+
     return (
-        <div className="p-2 bg-gray-300 border-b border-gray-400 grid grid-cols-3 gap-1 font-mono text-[8px]">
-            <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.disk ? 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'bg-amber-950'}`}></div>
-                <span className="text-gray-600">DISK</span>
+        <div className="bg-gray-300 border-b border-gray-400 font-mono">
+            {/* LED Strip */}
+            <div className="p-2 grid grid-cols-6 gap-0.5 text-[7px]">
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.disk ? 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'bg-amber-950'}`}></div>
+                    <span className="text-gray-600 scale-75">DISK</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.llm ? 'bg-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.8)]' : 'bg-cyan-950'}`}></div>
+                    <span className="text-gray-600 scale-75">NEURAL</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.ego ? 'bg-fuchsia-500 shadow-[0_0_5px_rgba(217,70,239,0.8)]' : 'bg-fuchsia-950'}`}></div>
+                    <span className="text-gray-600 scale-75">EGO</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.phys ? 'bg-blue-400 shadow-[0_0_5px_rgba(96,165,250,0.8)]' : 'bg-blue-950'}`}></div>
+                    <span className="text-gray-600 scale-75">PHYS</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.net ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.8)]' : 'bg-green-950'}`}></div>
+                    <span className="text-gray-600 scale-75">NET</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className={`w-full h-1 border border-black transition-colors ${ledStatus.heart ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.8)]' : 'bg-red-950'}`}></div>
+                    <span className="text-gray-600 scale-75">CORE</span>
+                </div>
             </div>
-            <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.llm ? 'bg-cyan-400 shadow-[0_0_5px_rgba(34,211,238,0.8)]' : 'bg-cyan-950'}`}></div>
-                <span className="text-gray-600">NEURAL</span>
-            </div>
-            <div className="flex flex-col items-center gap-1">
-                <div className={`w-3 h-1.5 border border-black transition-colors ${ledStatus.net ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.8)]' : 'bg-green-950'}`}></div>
-                <span className="text-gray-600">UPLINK</span>
+
+            {/* BIOS Area */}
+            <div className="mx-2 mb-2 p-1 bg-black text-[#00FF41] text-[7px] leading-tight h-[44px] overflow-hidden border border-gray-500 uppercase">
+                {biosLines.map((line, i) => (
+                    <div key={i} className={i === 0 ? "animate-pulse" : "opacity-60"}>
+                        {i === 0 ? "> " : "  "}{line}
+                    </div>
+                ))}
             </div>
         </div>
     );

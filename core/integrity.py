@@ -22,8 +22,9 @@ Output strictly JSON:
 """
 
 class IntegrityMonitor:
-    def __init__(self, llm_service: LLMService):
+    def __init__(self, llm_service: LLMService, event_bus=None):
         self.llm_service = llm_service
+        self.event_bus = event_bus
         self.system_model = os.getenv("GENERAL_ARES_MODEL") or "gpt-3.5-turbo"
 
     def check_integrity(self, agent_soul: Any, draft_text: str) -> Dict[str, Any]:
@@ -50,6 +51,10 @@ class IntegrityMonitor:
         # Using a fast model as requested, or the configured system model
         model_name = self.system_model
         
+        if self.event_bus:
+            from core.event_bus import EventType
+            self.event_bus.publish_threadsafe(EventType.EGO_CHECK, {"agent": agent_name, "model": model_name})
+
         try:
             response_text = self.llm_service.generate_response(
                 model_name=model_name,

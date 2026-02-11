@@ -11,22 +11,22 @@
         "confidence": 100,
         "paranoia": 0,
         "loyalty_to_chairman": 100,
-        "stress_level": 3,
+        "stress_level": 0,
         "energy": 100
     },
     "relationships": {
         "General Ares": {
-            "trust_score": -54,
+            "trust_score": -10,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Diplomat Dove": {
-            "trust_score": 25,
+            "trust_score": 15,
             "last_interaction_summary": "",
             "hidden_agenda": null
         },
         "Banker Midas": {
-            "trust_score": 10,
+            "trust_score": -3,
             "last_interaction_summary": "",
             "hidden_agenda": null
         }
