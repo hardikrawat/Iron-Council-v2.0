@@ -535,16 +535,37 @@ async def websocket_endpoint(websocket: WebSocket):
 # --- KILL SWITCH ---
 @app.post("/admin/toggle_heartbeat")
 async def toggle_heartbeat(active: bool):
+    global active_loops
     if active:
         if not heartbeat.is_running:
+            # 1. Start Heartbeat
             asyncio.create_task(heartbeat.start())
-            return {"status": "Heartbeat STARTED"}
-        return {"status": "Heartbeat ALREADY RUNNING"}
+            
+            # 2. Resume OODA Loops if they were stopped
+            if not active_loops:
+                logger.info("Resuming OODA Loops...")
+                active_loops = [] # clear just in case
+                for agent in simulation.agents:
+                    loop = OODALoop(agent, event_bus, heartbeat)
+                    active_loops.append(loop)
+                    asyncio.create_task(loop.start())
+                    logger.info(f"Restarted OODA loop for {agent.soul.name}")
+            
+            return {"status": "System RESUMED"}
+        return {"status": "System ALREADY RUNNING"}
     else:
         if heartbeat.is_running:
+             # 1. Stop Heartbeat
              heartbeat.stop() 
-             return {"status": "Heartbeat STOPPED"}
-        return {"status": "Heartbeat ALREADY STOPPED"}
+             
+             # 2. Stop OODA Loops
+             logger.info("Pausing OODA Loops...")
+             for loop in active_loops:
+                 loop._running = False
+             active_loops.clear()
+             
+             return {"status": "System PAUSED"}
+        return {"status": "System ALREADY STOPPED"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -78,7 +78,7 @@ class LLMService:
         
         # Specific timeouts for local LLM: (connect, read)
         # Read timeout is large to allow for long generations
-        self.timeout = (10, int(os.getenv("LLM_TIMEOUT", "300")))
+        self.timeout = (10, int(os.getenv("LLM_TIMEOUT", "600")))
         
         self.session = requests.Session()
         self.session.headers.update({"Connection": "keep-alive"})
@@ -394,9 +394,15 @@ class LLMService:
                                 if chunk.get('done'):
                                     break
                     return 
-                except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.Timeout) as e:
+                except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
                     if attempt < max_retries - 1:
                         import time
+                        # Check if it's a 500 error specifically to retry
+                        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code >= 500:
+                            logger.warning(f"Local LLM 500 Error. Retrying (Attempt {attempt+1}/{max_retries})...")
+                        elif not isinstance(e, requests.exceptions.HTTPError):
+                            logger.warning(f"Local LLM Network Error: {e}. Retrying...")
+                            
                         time.sleep(backoff_delay)
                         backoff_delay *= 2
                     else:
@@ -436,8 +442,14 @@ class LLMService:
                     if self.testing:
                         self.cache.set(model_name, system_prompt, user_message, content)
                     return content
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
                     if attempt < max_retries - 1:
+                         # Check if it's a 500 error specifically to retry
+                        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code >= 500:
+                            logger.warning(f"Local LLM 500 Error. Retrying (Attempt {attempt+1}/{max_retries})...")
+                        elif not isinstance(e, requests.exceptions.HTTPError):
+                            logger.warning(f"Local LLM Network Error: {e}. Retrying...")
+                        
                         time.sleep(backoff_delay)
                         backoff_delay *= 2
                     else:
@@ -450,6 +462,10 @@ class LLMService:
         """
         Resolves generic model names to specific local versions.
         """
+        # If we are in local mode, FORCE the local model (unless valid local override is possible, but let's stick to simple)
+        if self.provider_override == "local":
+             return self.local_model_name or "qwen2.5:14b"
+             
         if model_name == "local" or model_name.startswith("local/"):
             return self.local_model_name or "qwen2.5:14b"
         # If it's a specific model name passed through (like 'qwen2.5:14b'), use it

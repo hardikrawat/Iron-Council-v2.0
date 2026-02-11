@@ -34,6 +34,7 @@ class OODALoop:
         self._running = False
         self._last_processed_world_event = None  # Fix #3: track processed chairman messages
         self._last_processed_agent_event = None  # Fix #16: track processed agent messages
+        self._consecutive_errors = 0 # Fix: Track repeated failures
 
         
         # Subscribe to relevant events with type injection
@@ -99,11 +100,22 @@ class OODALoop:
         while self._running:
             try:
                 await self._run_cycle()
+                # Success - reset errors
+                self._consecutive_errors = 0
             except asyncio.CancelledError:
                 logger.info(f"{self.agent.soul.name} OODA loop cancelled.")
                 break
             except Exception as e:
-                logger.error(f"Error in {self.agent.soul.name} OODA loop: {e}")
+                self._consecutive_errors += 1
+                logger.error(f"Error in {self.agent.soul.name} OODA loop (Attempt {self._consecutive_errors}): {e}")
+                
+                # Backoff Strategy
+                if self._consecutive_errors > 5:
+                    logger.critical(f"{self.agent.soul.name} is COMATOSE due to repeated errors. Sleeping for 60s.")
+                    await asyncio.sleep(60)
+                    self._consecutive_errors = 0 # Try to wake up eventually
+                else:
+                    await asyncio.sleep(2 ** self._consecutive_errors) # 2, 4, 8, 16, 32s
             
             # Randomized sleep to desynchronize agents
             await asyncio.sleep(random.uniform(2.0, 4.0))

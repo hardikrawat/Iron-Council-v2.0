@@ -119,6 +119,25 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
 
     // Tension Bar
     const tension = systemState?.tension || 0;
+    const [isPaused, setIsPaused] = useState(false);
+
+    // Toggle Function
+    const toggleSystem = async () => {
+        try {
+            const newState = !isPaused; // If paused (true), we want to active (true/start). Wait, logic inverse?
+            // API: active=true means START. active=false means STOP.
+            // visual isPaused=true means STOPPED.
+            // So if paused, we want to START (active=true).
+            const activeParam = isPaused;
+
+            await fetch(`http://localhost:8000/admin/toggle_heartbeat?active=${activeParam}`, { method: 'POST' });
+            setIsPaused(!isPaused);
+        } catch (e) {
+            console.error("Failed to toggle system:", e);
+        }
+    };
+
+
 
     // Conch Info
     const conchOwner = systemState?.conch?.owner;
@@ -156,13 +175,23 @@ const MissionStatus = ({ heartbeatStats, systemState }) => {
             </div>
 
             {conchOwner ? (
-                <div className="bg-red-50 border-2 border-red-500 p-1 text-center animate-pulse shadow-sharp">
+                <div className="bg-red-50 border-2 border-red-500 p-1 text-center animate-pulse shadow-sharp cursor-pointer hover:bg-red-100" onClick={toggleSystem}>
                     <span className="font-bold text-red-800 text-[8px]">⚠ CHANNEL LOCKED: {conchOwner}</span>
-                    <span className="block text-[7px] text-red-600 mt-0.5">AUTO-REVOKE IN {conchExpires}s</span>
+                    <span className="block text-[7px] text-red-600 mt-0.5">CLICK TO FORCE HALT</span>
                 </div>
             ) : (
-                <div className="bg-green-50 border-2 border-green-500 p-1 text-center text-green-800 opacity-75 shadow-sharp">
-                    <span className="text-[8px] font-bold">SYSTEM NOMINAL // CHANNEL OPEN</span>
+                <div
+                    onClick={toggleSystem}
+                    className={`border-2 p-1 text-center shadow-sharp cursor-pointer transition-all ${isPaused ? 'bg-red-900 border-red-600' : 'bg-green-50 border-green-500 hover:bg-green-100'}`}
+                >
+                    {isPaused ? (
+                        <div className="flex flex-col items-center">
+                            <span className="text-[9px] font-bold text-red-100 animate-pulse">⚠ SYSTEM HALTED ⚠</span>
+                            <span className="text-[7px] text-red-300">CLICK TO RESUME</span>
+                        </div>
+                    ) : (
+                        <span className="text-[8px] font-bold text-green-800 opacity-75">SYSTEM NOMINAL // CHANNEL OPEN</span>
+                    )}
                 </div>
             )}
         </div>
