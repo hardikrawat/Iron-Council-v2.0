@@ -78,7 +78,10 @@ class AgentSoul(BaseModel):
         Clamps progress between 0 and 100.
         """
         for goal in self.goals:
-            if goal.active and goal.description.lower() in goal_description.lower():
+            # FIX BUG-08: Check both directions for substring matching
+            gl = goal.description.lower()
+            gd = goal_description.lower()
+            if goal.active and (gl in gd or gd in gl):
                 goal.progress = max(0, min(100, goal.progress + delta))
                 return
         # Fuzzy fallback: try partial match

@@ -11,6 +11,8 @@ function App() {
     const [input, setInput] = useState("");
     const wsRef = useRef(null);
     const bottomRef = useRef(null);
+    // FIX: Ref to access current agents inside WebSocket closure
+    const agentsRef = useRef([]);
     // FIX AUDIT-4.2: Counter-based unique post IDs for stable React keys
     const postIdCounter = useRef(0);
     const nextPostId = () => `post-${++postIdCounter.current}`;
@@ -24,6 +26,12 @@ function App() {
     const [systemState, setSystemState] = useState({ tension: 0, conch: null });
     const [activity, setActivity] = useState({ disk: 0, llm: 0, net: 0, ego: 0, phys: 0 });
     const [isDreaming, setIsDreaming] = useState(false);
+    const [drainStatus, setDrainStatus] = useState(null); // { buffered: [], total: 4, phase: 'DRAINING'|'CLEAR' }
+    const [verdicts, setVerdicts] = useState([]); // Array of { agent, goal, delta, details, timestamp }
+    const [goalHistory, setGoalHistory] = useState({}); // { AgentName: [progress_values] }
+
+    // FIX: Keep agentsRef in sync so WebSocket handler sees current agents
+    useEffect(() => { agentsRef.current = agents; }, [agents]);
 
     useEffect(() => {
         // FIX CRIT-04: WebSocket with automatic reconnection + exponential backoff
@@ -50,6 +58,22 @@ function App() {
 
                 if (msg.type === 'init') {
                     setAgents(msg.data);
+                } else if (msg.type === 'initial_sync') {
+                    // Populate agents and their current statuses
+                    const { agents: syncAgents, heartbeat: syncHeartbeat } = msg.data;
+                    setAgents(syncAgents);
+                    if (syncHeartbeat) setHeartbeatStats(syncHeartbeat);
+
+                    // Populate the status map
+                    const statusMap = {};
+                    syncAgents.forEach(a => {
+                        statusMap[a.id] = {
+                            status: a.status,
+                            phase: a.phase,
+                            details: a.details
+                        };
+                    });
+                    setAgentStatuses(statusMap);
                 } else if (msg.type === 'heartbeat_pulse') {
                     setHeartbeatStats(msg.stats);
                     // Sync CORE LED with actual backend pulse
@@ -58,15 +82,51 @@ function App() {
                     // Update relationships specifically 
                     setAgents(prev => prev.map(a => a.id === msg.agent_id ? { ...a, relationships: msg.relationships } : a));
                 } else if (msg.type === 'agent_status_update') {
-                    setAgentStatuses(prev => ({
-                        ...prev,
-                        [msg.data.agent]: {
-                            status: msg.data.status,
-                            details: msg.data.details,
-                            phase: msg.data.phase,  // FIX 6.1: Preserve phase for OODA indicators
-                            updatedAt: Date.now()
-                        }
-                    }));
+                    // Handle Narrative Verdicts specifically for the Ledger/Plotter
+                    if (msg.data.status === 'NARRATIVE_VERDICT') {
+                        const { agent, goal, delta, details, goals, stats } = msg.data;
+                        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        setVerdicts(prev => [{ agent, goal, delta, details, timestamp }, ...prev].slice(0, 10));
+
+                        // Update Goal History for Plotter
+                        // FIX: Use agentsRef.current instead of stale `agents` closure
+                        setGoalHistory(prev => {
+                            const newHistory = { ...prev };
+                            const currentAgents = agentsRef.current;
+                            currentAgents.forEach(a => {
+                                const prog = (a.id === agent)
+                                    ? (goals.find(g => g.active)?.progress || 0)
+                                    : (a.goals?.find(g => g.active)?.progress || 0);
+
+                                if (!newHistory[a.name]) newHistory[a.name] = [];
+                                newHistory[a.name] = [...newHistory[a.name], prog].slice(-20);
+                            });
+                            return newHistory;
+                        });
+
+                        // Also update agents list so bars move
+                        setAgents(prev => prev.map(a => a.id === agent ? {
+                            ...a,
+                            stats: stats,
+                            goals: goals
+                        } : a));
+                    }
+
+                    setAgentStatuses(prev => {
+                        const prevStatus = prev[msg.data.agent] || {};
+                        return {
+                            ...prev,
+                            [msg.data.agent]: {
+                                status: msg.data.status,
+                                details: msg.data.details,
+                                // FIX: Preserve previous phase if new update doesn't provide one
+                                // This prevents relationship updates from clobbering the OODA overlay
+                                phase: msg.data.phase || prevStatus.phase,
+                                updatedAt: Date.now()
+                            }
+                        };
+                    });
                 } else if (msg.type === 'system_state_update') {
                     // { time, tension, conch: { owner, expires_in } }
                     setSystemState(prev => ({
@@ -115,6 +175,7 @@ function App() {
                         if (event === 'LLM_ACTIVITY' || event === 'LLM') {
                             updateBusy('llm');
                             next.llm_step = data?.step;
+                            next.llm_agent = data?.agent; // Track WHICH agent is using the neural link
                         }
                         if (event === 'EGO_CHECK' || event === 'EGO') {
                             updateBusy('ego');
@@ -248,7 +309,10 @@ function App() {
                                     content: msg.full_data.entry // Authoritative full text
                                 };
                             } else {
+                                // FIX BUG-07: Preserve _id, type, streamId from original post
                                 newPosts[lastIdx] = {
+                                    ...originalPost,
+                                    isStreaming: false,
                                     data: msg.full_data,
                                     timestamp: originalPost.timestamp || new Date().toISOString()
                                 };
@@ -266,12 +330,13 @@ function App() {
 
 
                 } else if (msg.type === 'system') {
-                    if (msg.content === "SESSION ENDED. DREAMING...") {
+                    if (msg.content.includes("SESSION ENDED") || msg.content.includes("SESSION ENDING")) {
                         document.body.classList.add('dream-mode');
                         setIsDreaming(true);
                     } else if (msg.content.includes("DREAM PHASE COMPLETE")) {
                         document.body.classList.remove('dream-mode');
                         setIsDreaming(false);
+                        setDrainStatus(null);
                     }
                     setPosts(prev => [...prev, { _id: nextPostId(), type: 'system', content: msg.content }]);
                 } else if (msg.type === 'dream') {
@@ -281,6 +346,8 @@ function App() {
                         document.body.classList.remove('dream-mode');
                         setIsDreaming(false);
                     }, 8000);
+                } else if (msg.type === 'drain_status') {
+                    setDrainStatus(msg);
                 }
             };
 
@@ -344,6 +411,8 @@ function App() {
                 systemState={systemState}
                 activity={activity}
                 onOpenGraph={handleOpenGraph}
+                verdicts={verdicts}
+                goalHistory={goalHistory}
             />
 
             {/* Modals */}
@@ -379,15 +448,36 @@ function App() {
 
                             {/* Dream Mode Indicator in Main Chat */}
                             {isDreaming && (
-                                <div className="p-4 bg-indigo-900 border-2 border-indigo-500 text-center animate-pulse shadow-sharp my-4">
-                                    <div className="text-white font-bold text-lg tracking-widest uppercase mb-1">
-                                        ⚠️ SYSTEM DREAMING ⚠️
-                                    </div>
-                                    <div className="text-indigo-200 text-xs font-mono">
-                                        The council is reflecting via the Neural Link (Subconscious Log).
-                                        <br />
-                                        <span className="font-bold underline">CHECK THE SIDEBAR</span> for subjective memory formation.
-                                    </div>
+                                <div className="p-4 bg-amber-50 border-2 border-amber-700 text-center shadow-sharp my-4">
+                                    {drainStatus && drainStatus.phase === 'DRAINING' ? (
+                                        <>
+                                            <div className="text-amber-900 font-bold text-sm tracking-widest uppercase mb-2 font-mono">
+                                                ⚙ FLUSHING PIPELINE
+                                            </div>
+                                            <div className="flex gap-0.5 max-w-xs mx-auto mb-2">
+                                                {Array.from({ length: drainStatus.total }).map((_, i) => (
+                                                    <div key={i} className={`flex-1 h-2 border border-amber-700 transition-all duration-500 ${i < (drainStatus.total - drainStatus.buffered.length)
+                                                        ? 'bg-amber-600'
+                                                        : 'bg-amber-100 animate-pulse'
+                                                        }`} />
+                                                ))}
+                                            </div>
+                                            <div className="text-amber-800 text-[10px] font-mono">
+                                                {drainStatus.buffered.length} AGENT{drainStatus.buffered.length !== 1 ? 'S' : ''} BUFFERED: {drainStatus.buffered.join(', ')}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="text-amber-900 font-bold text-lg tracking-widest uppercase mb-1 font-mono">
+                                                ⚠ SYSTEM DREAMING ⚠
+                                            </div>
+                                            <div className="text-amber-800 text-xs font-mono">
+                                                The council is reflecting via the Neural Link (Subconscious Log).
+                                                <br />
+                                                <span className="font-bold underline">CHECK THE SIDEBAR</span> for subjective memory formation.
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
 

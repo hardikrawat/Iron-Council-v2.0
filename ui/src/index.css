@@ -284,3 +284,25 @@
 .animate-pulse {
   animation: led-pulse 0.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* PURE RED SHARP BLINK */
+@keyframes led-blink-sharp {
+
+  0%,
+  49% {
+    background-color: #ef4444;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.8);
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    background-color: #450a0a;
+    box-shadow: none;
+    opacity: 1;
+  }
+}
+
+.animate-blink-sharp {
+  animation: led-blink-sharp 0.3s steps(2, start) infinite;
+}

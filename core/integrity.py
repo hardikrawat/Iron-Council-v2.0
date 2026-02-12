@@ -25,7 +25,8 @@ class IntegrityMonitor:
     def __init__(self, llm_service: LLMService, event_bus=None):
         self.llm_service = llm_service
         self.event_bus = event_bus
-        self.system_model = os.getenv("GENERAL_ARES_MODEL") or "gpt-3.5-turbo"
+        # FIX BUG-10: Use dedicated EGO_MODEL env var instead of borrowing General Ares's model
+        self.system_model = os.getenv("EGO_MODEL") or os.getenv("GENERAL_ARES_MODEL") or "gpt-3.5-turbo"
 
     def check_integrity(self, agent_soul: Any, draft_text: str) -> Dict[str, Any]:
         """

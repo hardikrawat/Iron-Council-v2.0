@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import datetime
+import time
 import glob
 from typing import Dict, List, Optional, Any
 
@@ -33,7 +34,7 @@ from core.dream import dream_phase, dream_phase_stream, review_agendas
 # Phase 3 Imports
 from core.event_bus import EventBus, EventType
 from core.heartbeat import Heartbeat
-from core.ooda import OODALoop
+from core.ooda import OODALoop, EventBuffer
 from core.physics_system import PhysicsSystem
 
 # Setup logging
@@ -56,6 +57,9 @@ event_bus = EventBus()
 heartbeat = Heartbeat(event_bus)
 active_loops: List[OODALoop] = []
 physics_system: Optional[PhysicsSystem] = None
+
+# Latest status for each agent to sync newly connected clients
+agent_status_cache: Dict[str, dict] = {}
 
 # --- SIMULATION ENGINE ---
 class CouncilSimulation:
@@ -85,13 +89,14 @@ class CouncilSimulation:
 
 
 
-    def generate_dream(self):
+    async def generate_dream(self):
         """
         Runs the dream phase and returns the journal entries.
+        FIX BUG-09: Properly awaits async dream_phase.
         """
         dream_entries = []
         for agent in self.agents:
-            entry = dream_phase(agent, self.session_log)
+            entry = await dream_phase(agent, self.session_log)
             dream_entries.append({
                 "agent_name": agent.soul.name,
                 "entry": entry
@@ -106,6 +111,32 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        
+        # Send INITIAL_SYNC to new client
+        agents_data = []
+        for agent in simulation.agents:
+            # Prefer cached status for phase/details, but fallback to agent soul for base data
+            last_status = agent_status_cache.get(agent.agent_name, {})
+            # Include base data
+            agents_data.append({
+                "id": agent.agent_name,
+                "name": agent.soul.name,
+                "status": last_status.get("status", "IDLE"),
+                "phase": last_status.get("phase", ""),
+                "details": last_status.get("details", "Standing by."),
+                "stats": agent.soul.dynamic_stats.model_dump(),
+                "relationships": agent.soul.get_serializable_relationships(),
+                "goals": [g.model_dump() for g in agent.soul.goals]
+            })
+            
+        await websocket.send_json({
+            "type": "initial_sync",
+            "data": {
+                "agents": agents_data,
+                "heartbeat": heartbeat.stats if heartbeat else {}
+            }
+        })
+        logger.info(f"[WS] New client connected. Synced {len(agents_data)} agents.")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -211,6 +242,11 @@ async def bridge_agent_status(payload: dict):
     Bridges AGENT_STATUS events to the WebSocket.
     Also intercepts RELATIONSHIP_UPDATE to sync full graph data.
     """
+    # Cache status for future INITIAL_SYNC
+    agent_name = payload.get("agent")
+    if agent_name:
+        agent_status_cache[agent_name] = payload
+
     # Standard status update
     ws_payload = {
         "type": "agent_status_update",
@@ -446,19 +482,85 @@ async def _handle_end_session():
     Fix #2: Full end session + dream phase restoration.
     Pauses OODA loops, streams dream for each agent, reviews agendas, resumes.
     """
-    logger.info("=== END SESSION TRIGGERED ===")
-    
-    # 1. Broadcast system message to frontend
+    # 1. Broadcast system message to frontend IMMEDIATELY
     await manager.broadcast({
         "type": "system",
-        "content": "SESSION ENDED. DREAMING..."
+        "content": "SESSION ENDING. FLUSHING PIPELINE..."
     })
-    
-    # 2. Pause OODA loops and heartbeat
+
+    # 1.1 Send initial drain status so UI can create progress bar immediately
+    await manager.broadcast({
+        "type": "drain_status",
+        "buffered": [loop.agent.agent_name for loop in active_loops if loop._in_cycle],
+        "total": len(active_loops),
+        "phase": "DRAINING"
+    })
+
+    # 2. Pause OODA loops and heartbeat immediately
     for loop in active_loops:
         loop._running = False
     heartbeat.stop()
-    logger.info("OODA loops and heartbeat paused for dream phase.")
+    logger.info("OODA loops and heartbeat paused for transition.")
+
+    # 2.6 FIX: Broadcast DREAMING status to UI for each agent immediately
+    for agent in simulation.agents:
+        await event_bus.publish(EventType.AGENT_STATUS, {
+            "agent": agent.agent_name,
+            "status": "DREAMING",
+            "phase": "",
+            "details": "Writing in Dream Diary..."
+        })
+
+    # 3. Flush the PhysicsSystem buffer (Narrative Adjudication)
+    # This can be slow (LLM call), so we do it after the UI is notified.
+    global physics_system
+    if physics_system:
+        logger.info("Flushing PhysicsSystem pipeline...")
+        await physics_system.flush_gamemaster_loop()
+
+    # 2.1 FIX: Release conch during dream phase to clear UI "Channel Locked" banner
+    if heartbeat.conch.is_locked():
+        owner = heartbeat.conch.owner
+        heartbeat.conch.release(owner)
+        logger.info(f"[LOCK] Force-released conch held by {owner} for dream phase.")
+
+    # Broadcast clear system state immediately
+    await manager.broadcast({
+        "type": "system_state_update",
+        "data": {
+            "time": time.time(),
+            "tension": heartbeat.tension,
+            "conch": {
+                "owner": None,
+                "expires_in": 0
+            }
+        }
+    })
+    
+    # 2.5 FIX BUG-3: Drain in-flight cycles before starting dream phase
+    buffered_agents = [loop.agent.agent_name for loop in active_loops if loop._in_cycle]
+    if buffered_agents:
+        logger.info(f"Draining {len(buffered_agents)} in-flight OODA cycles: {buffered_agents}")
+        
+        for loop in active_loops:
+            # FIX BUG-A: Increased timeout for local models (30s)
+            drained = await loop.wait_for_drain(timeout=30.0)
+            
+            # FIX BUG-C: Activate drain gate if timeout occurred to suppress late broadcasts
+            if not drained:
+                loop._drain_gate = True
+                logger.warning(f"Active drain gate for {loop.agent.soul.name} due to timeout.")
+            
+            # Update drain status as each completes
+            buffered_agents = [l.agent.agent_name for l in active_loops if l._in_cycle]
+            await manager.broadcast({
+                "type": "drain_status",
+                "buffered": buffered_agents,
+                "total": len(active_loops),
+                "phase": "DRAINING" if buffered_agents else "CLEAR"
+            })
+    
+    logger.info("Pipeline drained. Proceeding to dream phase.")
     
     # 3. Compute trust deltas from session start
     trust_delta_map = {}  # {agent_name: {other_soul_name: delta}}
@@ -518,6 +620,21 @@ async def _handle_end_session():
         # 6. Save agent state
         agent.save_state()
         logger.info(f"Dream complete for {agent.soul.name}")
+
+        # FIX: Broadcast the new "Osmosed" stats to the UI immediately
+        await manager.broadcast({
+            "type": "stat_update",
+            "agent_id": agent.agent_name,
+            "stats": agent.soul.dynamic_stats.model_dump(),
+            "goals": [g.model_dump() for g in agent.soul.goals]
+        })
+        
+        await manager.broadcast({
+            "type": "relationship_update",
+            "agent_id": agent.agent_name,
+            "relationships": agent.soul.get_serializable_relationships()
+        })
+        logger.info(f"[WS_BRIDGE] Synced post-dream stats for {agent.soul.name}")
     
     # 7. Re-snapshot trust baselines for next session
     simulation.snapshot_trust()
@@ -527,7 +644,12 @@ async def _handle_end_session():
     simulation.save_history()
     
     # 9. Resume OODA loops and heartbeat
+    # FIX BUG-01/05: Clear stale event buffers and processed-event trackers
     for loop in active_loops:
+        loop.memory = EventBuffer()
+        loop._last_processed_world_event = None
+        loop._last_processed_agent_event = None
+        loop._waiting_for_physics = False
         loop._running = True
         asyncio.create_task(loop.start())
     asyncio.create_task(heartbeat.start())
@@ -657,29 +779,32 @@ async def toggle_heartbeat(active: bool):
 # --- FIX 6.3: Dedicated endpoint to force-release the Conch without killing the system ---
 @app.post("/admin/force_release_conch")
 async def force_release_conch():
-    """Force-releases the speaking lock (Conch) without halting the heartbeat or OODA loops."""
-    owner = heartbeat.conch.owner
-    if owner:
-        logger.warning(f"[ADMIN] Force-releasing Conch from {owner}")
-        heartbeat.conch.owner = None
-        heartbeat.conch.acquired_at = None
-        heartbeat.conch._original_acquired_at = None
-        
-        # Broadcast updated system state so UI reflects immediately
-        await manager.broadcast({
-            "type": "system_state_update",
-            "data": {
-                "tension": heartbeat.global_tension,
-                "conch": {"owner": None, "expires_in": 0}
-            }
-        })
-        # Log it
-        await manager.broadcast({
-            "type": "system_log",
-            "content": f"[{datetime.datetime.now().isoformat()}] [SYSTEM] > Conch FORCE-RELEASED from {owner} by Chairman."
-        })
-        return {"status": f"Conch released from {owner}"}
-    return {"status": "Conch is not held"}
+    """Force-releases the speaking lock (Conch) without halting the heartbeat or OODA loops.
+    FIX BUG-02: Uses async mutex to prevent racing with OODA lock operations."""
+    async with heartbeat.conch._async_mutex:
+        owner = heartbeat.conch.owner
+        if owner:
+            logger.warning(f"[ADMIN] Force-releasing Conch from {owner}")
+            heartbeat.conch.owner = None
+            heartbeat.conch.acquired_at = None
+            heartbeat.conch._original_acquired_at = None
+        else:
+            return {"status": "Conch is not held"}
+    
+    # Broadcast updated system state so UI reflects immediately
+    await manager.broadcast({
+        "type": "system_state_update",
+        "data": {
+            "tension": heartbeat.global_tension,
+            "conch": {"owner": None, "expires_in": 0}
+        }
+    })
+    # Log it
+    await manager.broadcast({
+        "type": "system_log",
+        "content": f"[{datetime.datetime.now().isoformat()}] [SYSTEM] > Conch FORCE-RELEASED from {owner} by Chairman."
+    })
+    return {"status": f"Conch released from {owner}"}
 
 # --- LOGGING ENDPOINTS ---
 @app.get("/logs/download")

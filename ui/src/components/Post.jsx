@@ -71,12 +71,13 @@ const Post = ({ post }) => {
                     {hasHiddenLayer && (
                         <div className="mt-2 border-t border-gray-300 pt-1">
                             <div className="group/spoiler relative cursor-help select-none">
-                                {/* The Secret Text: Starts Black on Black, slowly turns White on Hover */}
-                                <div className="bg-black text-black group-hover/spoiler:text-white transition-colors duration-700 ease-in p-1 font-mono text-xs">
+                                {/* The Thought Stream: Indigo theme for 'Neural' activity */}
+                                <div className="bg-[#1e1b4b] text-[#a5b4fc] group-hover/spoiler:text-white transition-colors duration-300 ease-in p-2 font-mono text-xs border-l-2 border-indigo-500">
+                                    <span className="opacity-50 select-none mr-2">{'>'}</span>
                                     {hiddenText}
                                 </div>
-                                <div className="absolute top-0 right-0 text-[9px] text-gray-500 opacity-50 pointer-events-none group-hover/spoiler:opacity-0">
-                                    [REDACTED]
+                                <div className="absolute top-0 right-0 text-[9px] text-indigo-400 opacity-70 pointer-events-none group-hover/spoiler:opacity-0 pr-1 pt-1">
+                                    [THOUGHT STREAM]
                                 </div>
                             </div>
                         </div>

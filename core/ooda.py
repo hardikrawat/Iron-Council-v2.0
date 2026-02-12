@@ -36,6 +36,11 @@ class OODALoop:
         self._consecutive_errors = 0 # Fix: Track repeated failures
         self._waiting_for_physics = False # Fix #99: Reaction Gating
         self._physics_wait_start = 0
+        # FIX BUG-3: Drain mechanism for clean dream phase transitions
+        self._in_cycle = False
+        self._drain_gate = False # FIX BUG-C: Gate to suppress speech after drain timeout
+        self._cycle_complete = asyncio.Event()
+        self._cycle_complete.set()  # Initially "not in a cycle"
 
         
         # Subscribe to relevant events with type injection
@@ -61,7 +66,7 @@ class OODALoop:
         if event_type == EventType.AGENT_STATUS:
             if event.get("agent") != self.agent.agent_name:
                 return # Ignore other agents' internal stats
-            if event.get("status") not in ["STAT_UPDATE", "RELATIONSHIP_UPDATE"]:
+            if event.get("status") not in ["STAT_UPDATE", "RELATIONSHIP_UPDATE", "NARRATIVE_VERDICT"]:
                 return # Ignore routine state changes like "THINKING"
 
         # Fix #2: Filter Silence Events from buffer to prevent amnesia
@@ -110,11 +115,24 @@ class OODALoop:
                 for key, val in [("soul_name", None)]:
                     if key in e:
                         soul_name = e[key]
-                lines.append(f'{soul_name} said: "{e.get("content", "")}"')
+                
+                # FIX: Subjective Reality ('I' Shift)
+                if agent_id == self.agent.agent_name:
+                    lines.append(f'YOU said: "{e.get("content", "")}"')
+                else:
+                    lines.append(f'{soul_name} said: "{e.get("content", "")}"')
             elif etype == EventType.AGENT_STATUS:
                 # Interoception: Internal monologue about state changes
+                status = e.get("status")
                 details = e.get("details", "")
-                lines.append(f'[INTERNAL SENSE]: {details}')
+                
+                if status == "NARRATIVE_VERDICT":
+                    delta = e.get("delta", 0)
+                    goal = e.get("goal", "objective")
+                    trend = "ADVANCED" if delta > 0 else "REGRESSED" if delta < 0 else "STAGNATED"
+                    lines.append(f'[INTERNAL SENSE]: Your progress on "{goal}" has {trend} ({delta}%). GM VERDICT: {details}')
+                else:
+                    lines.append(f'[INTERNAL SENSE]: {details}')
         
         # Fix #2: Synthesize Atmosphere from Global Tension
         if self.heartbeat.global_tension > 20:
@@ -124,12 +142,19 @@ class OODALoop:
 
     def _extract_situation(self, events: List[Dict]) -> str:
         """
-        Fix #3: Extract the most recent meaningful event (Chairman OR Agent) as the situation.
+        Fix #3: Extract the focus of the current turn.
+        STICKY SITUATION: Prioritizes unprocessed WORLD_EVENTs over peer speech.
         """
+        # 1. Check for unprocessed WORLD_EVENTs (Sticky)
         for e in reversed(events):
             if e.get("type") == EventType.WORLD_EVENT:
-                return f'The Chairman addressed the council: "{e.get("content", "")}"'
-            elif e.get("type") == EventType.AGENT_SPEAK:
+                content = e.get("content", "")
+                if content != self._last_processed_world_event:
+                    return f'The Chairman addressed the council: "{content}"'
+        
+        # 2. Fallback to most recent Agent Speech
+        for e in reversed(events):
+            if e.get("type") == EventType.AGENT_SPEAK:
                 speaker = e.get("agent", "Unknown")
                 if speaker != self.agent.agent_name:
                     return f'{speaker} just said: "{e.get("content", "")}"'
@@ -140,15 +165,31 @@ class OODALoop:
         self._running = True
         while self._running:
             try:
+                self._in_cycle = True
+                self._cycle_complete.clear()
                 await self._run_cycle()
+                self._in_cycle = False
+                self._cycle_complete.set()
                 # Success - reset errors
                 self._consecutive_errors = 0
             except asyncio.CancelledError:
                 logger.info(f"{self.agent.soul.name} OODA loop cancelled.")
+                self._in_cycle = False
+                self._cycle_complete.set()
                 break
             except Exception as e:
+                self._in_cycle = False
+                self._cycle_complete.set()
                 self._consecutive_errors += 1
                 logger.error(f"Error in {self.agent.soul.name} OODA loop (Attempt {self._consecutive_errors}): {e}")
+                
+                # Report error to UI and clear phase
+                await self.event_bus.publish(EventType.AGENT_STATUS, {
+                    "agent": self.agent.agent_name,
+                    "status": "IDLE",
+                    "phase": "",
+                    "details": f"Error: {str(e)[:50]}"
+                })
                 
                 # Backoff Strategy
                 if self._consecutive_errors > 5:
@@ -160,6 +201,19 @@ class OODALoop:
             
             # Randomized sleep to desynchronize agents
             await asyncio.sleep(random.uniform(2.0, 4.0))
+
+    async def wait_for_drain(self, timeout: float = 15.0):
+        """FIX BUG-3: Wait for the current in-flight cycle to complete.
+        Called by server before dream phase to ensure clean transition."""
+        if not self._in_cycle:
+            return True
+        try:
+            await asyncio.wait_for(self._cycle_complete.wait(), timeout=timeout)
+            logger.info(f"{self.agent.soul.name} OODA cycle drained successfully.")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"{self.agent.soul.name} drain timed out after {timeout}s. Proceeding anyway.")
+            return False
 
     async def _run_cycle(self):
         # 0. Broadcast Start
@@ -175,9 +229,9 @@ class OODALoop:
         # Fix #99: Reaction Gating Check
         if self._waiting_for_physics:
              # Safety timeout (5s)
-             if time.time() - self._physics_wait_start > 5.0:
+             if time.time() - self._physics_wait_start > 120.0:
                  self._waiting_for_physics = False
-                 logger.warning(f"{self.agent.soul.name} timed out waiting for physics. Proceeding anyway.")
+                 logger.warning(f"{self.agent.soul.name} timed out waiting for physics (120s). Proceeding anyway.")
              else:
                  await self.event_bus.publish(EventType.AGENT_STATUS, {
                     "agent": self.agent.agent_name,
@@ -267,6 +321,7 @@ class OODALoop:
             await self.event_bus.publish(EventType.AGENT_STATUS, {
                 "agent": self.agent.agent_name,
                 "status": "IDLE",
+                "phase": "",
                 "details": "Standing by."
             })
             # logger.debug(f"{self.agent.soul.name} [OODA: DECIDE] -> No trigger. Idling.")
@@ -303,72 +358,85 @@ class OODALoop:
 
         # Attempt to acquire lock logic
 
-        if not self.heartbeat.conch.owner:
-            await self.event_bus.publish(EventType.AGENT_STATUS, {
-                "agent": self.agent.agent_name,
-                "status": "WAITING_FOR_LOCK",
-                "phase": "A",
-                "details": "Attempting to claim the floor..."
-            })
+        # Always broadcast intention to acquire before blocking
+        # This ensures the UI reflects that the agent is active even if another peer holds the conch.
+        await self.event_bus.publish_sync(EventType.AGENT_STATUS, {
+            "agent": self.agent.agent_name,
+            "status": "WAITING_FOR_LOCK",
+            "phase": "A",
+            "details": "Attempting to claim the floor..."
+        })
 
-            acquired = await self.heartbeat.conch.async_acquire(self.agent.agent_name)
-            if acquired:
-                try:
-                    # 5. ACT
-                    # Fix #3: Build readable context and extract chairman message as situation
-                    # FIX PERF-02: Use pre-calculated memory context
-                    full_context_str = f"{memory_context_str}Recent events:\n{context_str}"
-                    
-                    # (Memory recall removed from here)
-                    # (Memory recall removed from here)
-                    
-                    await self.event_bus.publish(EventType.AGENT_STATUS, {
+        acquired = await self.heartbeat.conch.async_acquire(self.agent.agent_name)
+        if acquired:
+            try:
+                # 5. ACT
+                # Fix #3: Build readable context and extract chairman message as situation
+                # FIX PERF-02: Use pre-calculated memory context
+                full_context_str = f"{memory_context_str}Recent events:\n{context_str}"
+                
+                # (Memory recall removed from here)
+                # (Memory recall removed from here)
+                
+                # FIX BUG-B: Use publish_sync to ensure status update completes before blocking call
+                await self.event_bus.publish_sync(EventType.AGENT_STATUS, {
+                    "agent": self.agent.agent_name,
+                    "status": "THINKING",
+                    "phase": "A",
+                    "details": "Formulating response..."
+                })
+
+                response_data = await asyncio.to_thread(
+                    self.agent.speak, situation, full_context_str
+                )
+                
+                # Fix #14: Unpack dictionary response
+                if isinstance(response_data, dict):
+                    public_text = response_data.get("public_text", "")
+                    hidden_text = response_data.get("hidden_text", "")
+                else:
+                    public_text = str(response_data)
+                    hidden_text = ""
+
+                # FIX BUG-C: Check drain gate. If True, we timed out and should NOT broadcast.
+                if self._drain_gate:
+                    logger.warning(f"Drain gate active for {self.agent.soul.name}. Suppressing AGENT_SPEAK broadcast.")
+                else:
+                    # Publish with hidden text
+                    # 1. Update internals (Energy/State) before broadcast so UI gets fresh data
+                    self.agent.soul.update_stat("energy", -10)
+                    self.agent.save_state()  # Fix #7: persist state after OODA changes
+
+                    # 2. Update Status to ACTING (Sync) with fresh stats
+                    await self.event_bus.publish_sync(EventType.AGENT_STATUS, {
                         "agent": self.agent.agent_name,
-                        "status": "THINKING",
+                        "status": "ACTING",
                         "phase": "A",
-                        "details": "Formulating response..."
+                        "details": "Speaking via WebSocket bridge.",
+                        "stats": self.agent.soul.dynamic_stats.model_dump(),
+                        "goals": [g.model_dump() for g in self.agent.soul.goals]
                     })
 
-                    response_data = await asyncio.to_thread(
-                        self.agent.speak, situation, full_context_str
-                    )
-                    
-                    # Fix #14: Unpack dictionary response
-                    if isinstance(response_data, dict):
-                        public_text = response_data.get("public_text", "")
-                        hidden_text = response_data.get("hidden_text", "")
-                    else:
-                        public_text = str(response_data)
-                        hidden_text = ""
-
-                    # Publish with hidden text
+                    # 3. Broadcast Speech (Async) - Unblocks the loop from Physics lag
                     await self.event_bus.publish(EventType.AGENT_SPEAK, {
                         "agent": self.agent.agent_name,
                         "content": public_text,
                         "hidden_text": hidden_text
                     })
-                    
-                    await self.event_bus.publish(EventType.AGENT_STATUS, {
-                        "agent": self.agent.agent_name,
-                        "status": "ACTING",
-                        "phase": "A",
-                        "details": "Speaking via WebSocket bridge."
-                    })
-                    
-                    # Fix #1: Mark event as processed ONLY after successful action
-                    if decision_trigger:
-                        dtype, dcontent = decision_trigger
-                        if dtype == "WORLD":
-                            self._last_processed_world_event = dcontent
-                        elif dtype == "AGENT":
-                            self._last_processed_agent_event = dcontent
-                    
-                    # Deduct Energy
-                    self.agent.soul.update_stat("energy", -10)
-                    self.agent.save_state()  # Fix #7: persist state after OODA changes
-                    self.heartbeat.register_activity()
-                    
-                finally:
+                
+                # Fix #1: Mark event as processed ONLY after successful action
+                if decision_trigger:
+                    dtype, dcontent = decision_trigger
+                    if dtype == "WORLD":
+                        self._last_processed_world_event = dcontent
+                    elif dtype == "AGENT":
+                        self._last_processed_agent_event = dcontent
+                
+                self.heartbeat.register_activity()
+                
+            finally:
+                # FIX BUG-D: Only release if we still own it (Heartbeat might have force-released)
+                if self.heartbeat.conch.owner == self.agent.agent_name:
                     await self.heartbeat.conch.async_release(self.agent.agent_name)
 
     def unsubscribe_all(self):

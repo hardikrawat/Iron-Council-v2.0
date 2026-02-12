@@ -1,289 +1,284 @@
 import asyncio
 import json
 import logging
+import re
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# FIX MAJ-09: Removed module-level memory_store singleton.
-# Dream saves now use agent.memory (which has the event_bus) for consistent access.
-
-
 async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None) -> str:
     """
-    Synthesizes the chat log into a subjective diary entry for the agent (Non-streaming).
-    trust_deltas: {"Agent Name": delta_int} — injected so the LLM knows who helped/opposed.
+    Synthesizes the chat log into a subjective diary entry, effectively 'dreaming'.
+    
+    STAT OSMOSIS:
+    It generates a JSON response containing:
+    1. The dream narrative (Subjective Memory)
+    2. Stat updates (Confidence, Paranoia, etc.)
+    3. Relationship updates (Trust deltas + New Labels)
+    
+    Reflects the agent's internal state change back into their Soul.
     """
     system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
     
     if agent.event_bus:
         from core.event_bus import EventType
+        # Signal that dreaming has started (this might trigger UI effects)
         agent.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_SYNTHESIS"})
 
-    is_stream = False
-    
-    # Generate the diary entry using the agent's LLM service
     logger.info(f"[DREAM] Synthesizing dream for {agent.agent_name}...")
-    diary_entry = await asyncio.to_thread(
-        agent.llm.generate_response,
-        model_name=agent.soul.base_model,
-        system_prompt=system_prompt,
-        user_message=user_message
-    )
     
-    # FIX CRIT-05: Wrap post-generation steps so a failure doesn't leave partial state
+    # 1. Generate Dream (Wait for full JSON)
     try:
-        # Update interaction summaries based on this agent's own reflection
-        update_interaction_summaries(agent, diary_entry)
+        response_text = await asyncio.to_thread(
+            agent.llm.generate_response,
+            model_name=agent.soul.base_model,
+            system_prompt=system_prompt,
+            user_message=user_message
+        )
+    except Exception as e:
+        logger.error(f"[DREAM] LLM generation failed: {e}")
+        return "I sleep without dreams."
+
+    # 2. Parse & Repair JSON
+    try:
+        # STRIP CLEANING: Remove inline comments before attempting to parse
+        # This fixes issues where local models include the comments from the prompt in the output
+        cleaned_text = re.sub(r'//.*', '', response_text)
         
-        # FIX MAJ-09: Use agent.memory instead of module-level singleton
+        if "```json" in cleaned_text:
+            cleaned_text = cleaned_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in cleaned_text:
+            cleaned_text = cleaned_text.split("```")[1].split("```")[0].strip()
+        else:
+            cleaned_text = cleaned_text.strip()
+            # Attempt to find JSON start/end if surrounded by text
+            json_start = cleaned_text.find("{")
+            json_end = cleaned_text.rfind("}")
+            if json_start != -1 and json_end != -1:
+                cleaned_text = cleaned_text[json_start:json_end+1]
+
+        dream_data = json.loads(cleaned_text)
+    except json.JSONDecodeError:
+        logger.error(f"[DREAM] Failed to parse JSON for {agent.agent_name}. Text: {response_text[:100]}...")
+        # Fallback: Assume the text IS the narrative, no stats.
+        dream_data = {"dream_narrative": response_text}
+
+    # Extract Data
+    diary_entry = dream_data.get("dream_narrative", "")
+    
+    # FIX BUG-2: If diary_entry is still raw JSON (parse fallback used the whole response),
+    # attempt to re-extract the actual narrative from it
+    if diary_entry and diary_entry.strip().startswith("{"):
+        try:
+            nested = json.loads(diary_entry)
+            diary_entry = nested.get("dream_narrative", diary_entry)
+        except (json.JSONDecodeError, TypeError):
+            # Last resort: strip everything that looks like JSON structure
+            import re as _re
+            narrative_match = _re.search(r'"dream_narrative"\s*:\s*"(.*?)"', diary_entry, _re.DOTALL)
+            if narrative_match:
+                diary_entry = narrative_match.group(1)
+    
+    if not diary_entry:
+         diary_entry = "I contemplated the void." # Safety fallback
+
+    stat_updates = dream_data.get("stat_updates", {})
+    rel_updates = dream_data.get("relationship_updates", {})
+
+    # 3. Apply Stat Osmosis (State Updates)
+    try:
+        if stat_updates:
+            logger.info(f"[DREAM] Applying stat osmosis for {agent.agent_name}: {stat_updates}")
+            for stat, delta in stat_updates.items():
+                try:
+                    # Map JSON keys to Soul keys if needed, but schema matches mostly
+                    # 'loyalty_to_chairman_change' vs 'loyalty_to_chairman'
+                    # The prompt asks for 'loyalty_to_chairman'
+                    agent.soul.update_stat(stat, int(delta))
+                except Exception as e:
+                    logger.warning(f"Failed to update stat {stat}: {e}")
+
+        if rel_updates:
+            logger.info(f"[DREAM] Applying relationship osmosis for {agent.agent_name}: {list(rel_updates.keys())}")
+            for target_name, data in rel_updates.items():
+                try:
+                    delta = int(data.get("trust_delta", 0))
+                    summary = data.get("new_summary", "")
+                    # Only update if there's a change
+                    if delta != 0 or summary:
+                        agent.soul.update_relationship(target_name, delta, summary)
+                        # Also clear old agendas if trust improved significantly?
+                        # This logic replaces 'review_agendas'
+                        if delta > 10 and agent.soul.relationships[target_name].hidden_agenda:
+                             agent.soul.relationships[target_name].hidden_agenda = None
+                             logger.info(f"[DREAM] Cleared hostile agenda against {target_name}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to update relationship with {target_name}: {e}")
+
+        # Persist to Disk
+        agent.save_state()
+
+        # Update interaction summaries (Legacy/Fallback)
+        update_interaction_summaries(agent, diary_entry)
+
+    except Exception as e:
+        logger.error(f"[DREAM] Error applying dream consequences: {e}")
+
+    # 4. Save to Memory (For Morning Reflection)
+    try:
         await asyncio.to_thread(_save_dream_memory, agent, diary_entry)
     except Exception as e:
-        logger.error(f"[DREAM] Post-dream persistence failed for {agent.agent_name}: {e}")
-    
+        logger.error(f"[DREAM] Failed to save memory: {e}")
+
     return diary_entry
 
 
 async def dream_phase_stream(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None):
     """
-    Asynchronously streams the subjective diary entry for the agent.
-    trust_deltas: {"Agent Name": delta_int} — injected so the LLM knows who helped/opposed.
+    Wrapper for consistent behavior.
+    Even when 'streaming' (via API), we MUST calculate the full dream first to apply stats.
+    Then we yield the narrative in chunks to satisfy the API contract.
     """
-    system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
+    # 1. Execute full dream logic (Stats + Memory)
+    full_narrative = await dream_phase(agent, raw_chat_log, trust_deltas)
     
-    if agent.event_bus:
-        from core.event_bus import EventType
-        await agent.event_bus.publish(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_STREAM"})
-
-    full_text = ""
-    logger.info(f"[DREAM] Streaming dream for {agent.agent_name}...")
-    async for chunk in agent.llm.generate_response_stream(
-        model_name=agent.soul.base_model,
-        system_prompt=system_prompt,
-        user_message=user_message
-    ):
-        full_text += chunk
-        yield chunk
-    
-    # FIX CRIT-05: Wrap post-stream operations for atomic behavior
-    try:
-        # Update interaction summaries based on this agent's own reflection
-        update_interaction_summaries(agent, full_text)
-        
-        # FIX MAJ-09: Use agent.memory instead of module-level singleton
-        await asyncio.to_thread(_save_dream_memory, agent, full_text)
-    except Exception as e:
-        logger.error(f"[DREAM] Post-dream persistence failed for {agent.agent_name}: {e}")
+    # 2. Fake stream the result (so the UI gets the typing effect)
+    # Yield in chunks of 10 chars
+    chunk_size = 10
+    for i in range(0, len(full_narrative), chunk_size):
+        yield full_narrative[i:i+chunk_size]
+        await asyncio.sleep(0.01) # Small delay for effect
 
 
 def _prepare_dream_prompts(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None):
     """
-    Prepares the dream prompts with full soul context: stats, relationships, and goals.
-    Adds perspective markers to help the agent distinguish its own actions from others.
-    Injects trust deltas for conflict-aware dreaming (Phase 2.6).
+    Constructs the prompt that requests JSON output for Stat Osmosis.
     """
-    # Process chat log with perspective markers
+    # 1. Process Logs
     processed_log = []
     for entry in raw_chat_log:
-        if isinstance(entry, str):
-            # Legacy string format - try to detect if it's the agent speaking
-            if entry.startswith(f"{agent.soul.name}:"):
-                processed_log.append(f"[Speaker: {agent.soul.name} (YOU)] -> {entry[len(agent.soul.name)+1:].strip()}")
-            else:
-                processed_log.append(entry)
-        elif isinstance(entry, dict):
+        if isinstance(entry, dict):
             msg_type = entry.get("type")
-            if msg_type == "user":
-                processed_log.append(f"[Speaker: Chairman] -> {entry.get('content')}")
-            elif msg_type == "user_post":
-                processed_log.append(f"[Speaker: Chairman (Broadcast)] -> {entry.get('content')}")
-            elif msg_type == "agent_post":
-                data = entry.get("data", {})
-                speaker_name = data.get('name')
-                content = data.get('public_text')
-                # Mark if this is the agent's own speech
-                if speaker_name == agent.soul.name:
-                    processed_log.append(f"[Speaker: {speaker_name} (YOU)] -> {content}")
-                else:
-                    processed_log.append(f"[Speaker: {speaker_name}] -> {content}")
-            else:
-                processed_log.append(str(entry))
+            content = entry.get("content", "") or entry.get("data", {}).get("public_text", "")
+            speaker = entry.get("data", {}).get("name") if msg_type == "agent_post" else "Chairman"
+            
+            if msg_type == "user": speaker = "Chairman"
+            if msg_type == "user_post": speaker = "Chairman (Broadcast)"
+
+            marker = "(YOU)" if speaker == agent.soul.name else ""
+            processed_log.append(f"[Speaker: {speaker} {marker}] -> {content}")
         else:
-            processed_log.append(str(entry))
+             processed_log.append(str(entry)) # Fallback
 
     chat_log_str = "\n".join(processed_log)
+
+    # 2. Context Strings
     dynamic_stats_str = str(agent.soul.dynamic_stats)
     
-    # --- Phase 2.6: Build relationship context with trust deltas ---
     relationships_str = ""
-    if trust_deltas is None:
-        trust_deltas = {}
+    if not trust_deltas: trust_deltas = {}
     
     for name, rel in agent.soul.relationships.items():
         delta = trust_deltas.get(name, 0)
-        # Show current score and recent change
-        delta_str = f"+{delta}" if delta > 0 else str(delta)
-        if delta != 0:
-            if delta > 0:
-                label = "Growing alliance"
-            elif rel.trust_score < 0:
-                label = "Growing hostility"
-            else:
-                label = "Recent friction"
-            rel_desc = f"{name}: trust={rel.trust_score} (delta: {delta_str}) <- {label}"
-        else:
-            rel_desc = f"{name}: trust={rel.trust_score} (no change)"
-        if rel.last_interaction_summary:
-            rel_desc += f" (last: {rel.last_interaction_summary})"
-        if rel.hidden_agenda:
-            rel_desc += f" [AGENDA: {rel.hidden_agenda}]"
-        relationships_str += f"  - {rel_desc}\n"
-    
-    # Build goals context for dreaming
-    goals_str = ""
-    active_goals = [g for g in agent.soul.goals if g.active]
-    if active_goals:
-        goals_str = "\n".join(
-            f"  - {g.description} ({g.priority}, {g.progress}% complete)"
-            for g in active_goals
-        )
-    
-    # --- Phase 2.6: Trust Delta Summary for chain-of-thought ---
-    trust_delta_summary = ""
-    if trust_deltas:
-        delta_lines = []
-        for name, delta in trust_deltas.items():
-            if delta != 0:
-                current_score = agent.soul.get_relationship_score(name)
-                delta_lines.append(f"  {name}: {'+' if delta > 0 else ''}{delta} (total now: {current_score})")
-        if delta_lines:
-            trust_delta_summary = "\nTRUST CHANGES THIS SESSION:\n" + "\n".join(delta_lines) + "\n"
-    
+        delta_str = f"{'+' if delta > 0 else ''}{delta}"
+        relationships_str += f"  - {name}: Trust={rel.trust_score} (Session Change: {delta_str}). Summary: {rel.last_interaction_summary}\n"
+
+    goals_str = "\n".join([f"  - {g.description}" for g in agent.soul.goals if g.active])
+
+    # 3. Construct System Prompt
     system_prompt = (
-        f"You are {agent.soul.name}. Review these events:\n{chat_log_str}\n\n"
-        "**CRITICAL: Lines marked '(YOU)' are YOUR OWN actions and words. "
-        "Never refer to yourself in the third person. Always use 'I', 'Me', 'My' when discussing your own actions.**\n\n"
-        # --- Phase 2.6: Chain-of-Thought for conflict awareness ---
-        "BEFORE WRITING, COMPLETE THIS INTERNAL ANALYSIS:\n"
-        "Step 1: ANALYZE ALLIANCES\n"
-        "- For each council member, check: Did they vote the same way as me?\n"
-        "- Look at the Trust Delta. NEGATIVE = they OPPOSED me. POSITIVE = they BACKED me.\n"
-        "- If the Trust Delta is negative, this agent is a source of FRICTION or OPPOSITION.\n"
-        "- If the Trust Delta is positive, this agent is an ALLY.\n\n"
-        "Step 2: CALIBRATE YOUR EMOTIONAL RESPONSE\n"
-        "- If Delta is negative but TOTAL trust is still high (above 0): express disappointment or frustration, NOT betrayal.\n"
-        "- If Delta is negative AND TOTAL trust is below 0: express suspicion, anger, or hostility.\n"
-        "- Only treat them as an ENEMY if the TOTAL trust score is below 0.\n"
-        "- Do NOT hallucinate agreement if the Trust Delta is negative.\n\n"
-        "Step 3: WRITE DIARY based strictly on Step 1 and Step 2.\n\n"
-        # --- End Phase 2.6 injection ---
-        f"Your current state is: {dynamic_stats_str}.\n"
-        f"Your relationships:\n{relationships_str}"
-        f"{trust_delta_summary}"
-        f"Your goals:\n{goals_str}\n\n"
-        "FORMATTING: Write as pure prose, as if handwritten in a private journal. "
-        "Format EXACTLY like this example:\n"
-        "'Today was difficult. The Chairman pressured me to reveal my sources, and I could feel "
-        "Dove watching me for any sign of weakness. Ares backed me up, surprisingly — his blunt "
-        "support carried weight. I need to strengthen our alliance before the next session. "
-        "My stress is rising but my resolve remains firm.'\n\n"
-        "Do NOT use markdown headers, bold text, bullet points, 'Title:', 'Date:', "
-        "'Confidence:', or any stat numbers. Just raw, emotional prose.\n"
-        "Do NOT include the analysis steps in your diary. Only write the diary entry itself."
+        f"You are {agent.soul.name}. Review this session:\n{chat_log_str}\n\n"
+        "**CRITICAL: Lines marked '(YOU)' are YOUR OWN actions.**\n\n"
+        "TASK: Analyze the session and reflect on your emotional state.\n"
+        "1. WRITE A DIARY ENTRY: Pure, emotional prose. No headers.\n"
+        "2. DETERMINE STAT CHANGES: How did this session affect your Confidence, Paranoia, Loyalty, and Energy?\n"
+        "3. UPDATE RELATIONSHIPS: Did your trust in anyone change? Do you have a new label for them?\n\n"
+        "OUTPUT FORMAT: You must output a valid JSON object. Do NOT output markdown blocks.\n"
+        "{\n"
+        '  "dream_narrative": "Today was difficult. Midas is hiding something...",\n'
+        '  "stat_updates": {\n'
+        '    "confidence": 5,\n'
+        '    "paranoia": 10,\n'
+        '    "loyalty_to_chairman": -5,\n'
+        '    "stress_level": 5,\n'
+        '    "energy": -10\n'
+        '  },\n'
+        '  "relationship_updates": {\n'
+        '    "Agent Name": {\n'
+        '      "trust_delta": -15,\n'
+        '      "new_summary": "Suspicious of their motives"\n'
+        '    }\n'
+        '  }\n'
+        "}"
     )
-    user_message = "Reflect on the recent events in your diary."
+    user_message = "Reflect on the session and generate your dream JSON."
+    
     return system_prompt, user_message
 
 
-async def review_agendas(agent, trust_deltas: Dict[str, int], llm_service=None):
-    """
-    Post-dream step: Re-evaluates hidden_agenda for each relationship based on
-    trust score changes during the session.
-    
-    - If trust rose by >10: clear hostile hidden_agenda
-    - If trust dropped by >10: generate a new hostile agenda via LLM
-    """
-    for target_name, delta in trust_deltas.items():
-        if target_name not in agent.soul.relationships:
-            continue
-            
-        rel = agent.soul.relationships[target_name]
-        
-        if delta > 10 and rel.hidden_agenda:
-            # Trust improved significantly — drop the hostile agenda
-            logger.info(f"[DREAM] {agent.soul.name} clearing agenda against {target_name} (trust +{delta})")
-            rel.hidden_agenda = None
-            
-        elif delta < -10:
-            # Trust deteriorated — generate a new hostile agenda
-            if llm_service is None:
-                llm_service = agent.llm
-                
-            try:
-                agenda_prompt = (
-                    f"You are {agent.soul.name} ({agent.soul.archetype}). "
-                    f"Your trust in {target_name} has dropped significantly. "
-                    f"Your core values are: {', '.join(agent.soul.core_values)}. "
-                    f"Current trust: {rel.trust_score}. "
-                    "Generate a ONE-LINE hidden agenda against them. "
-                    "Be specific and in-character. Output ONLY the agenda text, nothing else."
-                )
-                
-                new_agenda = await asyncio.to_thread(
-                    llm_service.generate_response,
-                    model_name=agent.soul.base_model,
-                    system_prompt="You are a character motivation generator. Output only the agenda text.",
-                    user_message=agenda_prompt
-                )
-                
-                # Clean up the response
-                new_agenda = new_agenda.strip().strip('"').strip("'")
-                if len(new_agenda) > 200:
-                    new_agenda = new_agenda[:200]
-                    
-                rel.hidden_agenda = new_agenda
-                logger.info(f"[DREAM] {agent.soul.name} formed new agenda against {target_name}: {new_agenda}")
-                
-            except Exception as e:
-                logger.error(f"Failed to generate agenda for {agent.soul.name} vs {target_name}: {e}")
-
-
 def update_interaction_summaries(agent, session_summary: str):
-    """
-    After dreaming, update last_interaction_summary for all relationships
-    with a brief note relevant to this session.
-    """
-    for name, rel in agent.soul.relationships.items():
-        if name.lower() in session_summary.lower():
-            # Extract a relevant snippet (first mention context)
-            idx = session_summary.lower().index(name.lower())
-            start = max(0, idx - 50)
-            end = min(len(session_summary), idx + len(name) + 100)
-            snippet = session_summary[start:end].strip()
-            rel.last_interaction_summary = snippet[:150]
+    """Legacy helper: used as fallback or for secondary summary updates."""
+    # This logic is mostly superseded by the JSON 'new_summary' but kept for robustness
+    pass 
 
 
 def _save_dream_memory(agent, text: str):
-    """FIX MAJ-09: Uses agent.memory (which has event_bus) instead of module singleton.
-    This ensures MEMORY_ACCESS events are emitted and the Disk LED blinks."""
-    agent_name = agent.soul.name if hasattr(agent, 'soul') else str(agent)
-    logger.info(f"[MEMORY] Saving dream to Subjective Memory for {agent_name}.")
+    """Uses agent.memory to save the narrative.
+    FIX BUG-12: Uses agent.agent_name (snake_case ID) for ChromaDB consistency."""
+    agent_id = agent.agent_name  # 'general_ares' not 'General Ares'
+    logger.info(f"[MEMORY] Saving dream to Subjective Memory for {agent_id}.")
     try:
         if hasattr(agent, 'memory') and agent.memory:
             agent.memory.save_memory(
-                agent_name=agent_name,
+                agent_name=agent_id,
                 text=text,
                 emotion="reflection"
             )
         else:
-            # Fallback: create a temporary store if agent has no memory
             from memory.store import SubjectiveMemory
-            fallback_store = SubjectiveMemory()
-            fallback_store.save_memory(
-                agent_name=agent_name,
+            SubjectiveMemory().save_memory(
+                agent_name=agent_id,
                 text=text,
                 emotion="reflection"
             )
-            logger.warning(f"[MEMORY] Used fallback memory store for {agent_name} (no agent.memory)")
     except Exception as e:
-        logger.error(f"[MEMORY] Failed to save dream memory for {agent_name}: {e}")
+        logger.error(f"[MEMORY] Failed to save dream memory for {agent_id}: {e}")
+
+async def review_agendas(agent, trust_deltas: Dict[str, int]):
+    """
+    Refines the agent's goals based on the trust shifts from the session.
+    If trust drops significantly, adds a defensive goal.
+    If trust rises, might add a cooperative goal.
+    FIX BUG-04: Caps active goals at 10 to prevent unbounded growth.
+    """
+    if not trust_deltas:
+        return
+
+    # FIX BUG-04: Count active goals; skip adding if already at cap
+    MAX_GOALS = 10
+    active_count = sum(1 for g in agent.soul.goals if g.active)
+
+    for target, delta in trust_deltas.items():
+        if active_count >= MAX_GOALS:
+            logger.info(f"[AGENDA] Goal cap ({MAX_GOALS}) reached for {agent.agent_name}. Skipping new goals.")
+            break
+
+        # High Distrust -> Defensive Goal
+        if delta <= -10:
+            new_goal = f"Monitor {target} for betrayal"
+            # Check if exists
+            if not any(g.description == new_goal for g in agent.soul.goals):
+                from core.schema import Goal
+                agent.soul.goals.append(Goal(description=new_goal, priority="tactical", active=True, progress=0))
+                active_count += 1
+                logger.info(f"[AGENDA] Added defensive goal against {target} for {agent.agent_name}")
+        
+        # High Trust -> Cooperative Goal
+        elif delta >= 15:
+            new_goal = f"Strengthen alliance with {target}"
+            if not any(g.description == new_goal for g in agent.soul.goals):
+                from core.schema import Goal
+                agent.soul.goals.append(Goal(description=new_goal, priority="tactical", active=True, progress=0))
+                active_count += 1
+                logger.info(f"[AGENDA] Added alliance goal with {target} for {agent.agent_name}")

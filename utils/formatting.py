@@ -10,6 +10,11 @@ def clean_agent_response(text: str, agent_name: str = None) -> str:
 
     text = text.strip()
 
+    # 0. Strip XML straitjacket tags that may have survived extraction
+    # FIX BUG-1: These leak when agent.py fallback paths don't match cleanly
+    text = re.sub(r'</?(?:public_speech|internal_monologue)>', '', text, flags=re.IGNORECASE)
+    text = text.strip()
+
     # 1. Strip markdown code blocks (often used by models for 'clean' output)
     if text.startswith("```"):
         # If followed by a newline, assume language identifier
@@ -60,6 +65,31 @@ def clean_agent_response(text: str, agent_name: str = None) -> str:
     
     # Remove internal monologue markers if they appear at start
     text = re.sub(r'^\s*\(Internal Monologue\):?\s*', '', text, flags=re.IGNORECASE)
+
+    # FIX: Truncate Multi-turn Hallucinations
+    # If we find a line starting with "Name:" or "Name said:", cut everything after.
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Check if line looks like a new speaker: "General Ares:" or "General Ares said:"
+        # We need a generic regex for "Name:" pattern but careful not to catch normal text.
+        # Strict pattern: Start of line, Capitalized Words, colon.
+        if re.match(r'^\s*(?:[A-Z][a-z]+ )+[A-Z][a-z]+:\s*', line):
+            # If it matches the agent's OWN name, we skip the line (prefix removal handles this),
+            # but if it matches ANOTHER agent, we stop.
+            if agent_name and agent_name.replace('_', ' ').lower() in line.lower():
+                continue # Skip own name prefix
+            
+            # Additional check: Is it one of the known Council members?
+            # Hardcoded list for safety or generic pattern? Generic is risky.
+            # Let's use the known list from README/Schema if possible, or just strict pattern.
+            known_agents = ["General Ares", "Diplomat Dove", "Banker Midas", "Analyst Logic", "Chairman"]
+            if any(ka in line for ka in known_agents):
+                break # STOP processing further lines
+        
+        cleaned_lines.append(line)
+    
+    text = "\n".join(cleaned_lines)
 
     # 5. Clean artifacts
     text = re.sub(r'^\*+(?!\s)', '', text, flags=re.MULTILINE) # Leading asterisks

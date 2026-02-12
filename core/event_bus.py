@@ -105,11 +105,19 @@ class EventBus:
     async def publish_sync(self, event_type: str, payload: Dict[str, Any]):
         """
         Awaitable publish if needed for testing or critical sequence.
+        FIX BUG-03: Snapshot subscriber list to prevent mutation during iteration.
         """
         if event_type not in self._subscribers:
             return
             
-        callbacks = self._subscribers[event_type]
+        # FIX: logging for synchronous publish
+        # MAXIMAL LOGGING: Log every event (except system ticks to avoid spam)
+        if event_type != EventType.SYSTEM_TICK:
+            # Summarize payload for log
+            summary = str(payload)[:100] + "..." if len(str(payload)) > 100 else str(payload)
+            logger.info(f"publishing {event_type} (SYNC) -> {summary}")
+
+        callbacks = list(self._subscribers[event_type])
         for callback in callbacks:
             try:
                 await callback(payload)

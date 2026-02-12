@@ -131,6 +131,37 @@ class IronAgent:
         prompt_parts.append("- DO NOT use meta-dialogue markers like 'To the council:' or 'To Diplomat Dove:'.")
         prompt_parts.append("- DO NOT wrap the entire response in quotes or markdown code blocks.")
         prompt_parts.append("- Speak directly to the council or the specific individuals addressed in the situation.")
+        
+        # FIX: Inner Monologue Instruction (XML Straitjacket)
+        prompt_parts.append("\n[OUTPUT FORMAT - STRICT]")
+        prompt_parts.append("You are NOT to output raw text. You must format your response precisely as follows:")
+        prompt_parts.append("<internal_monologue>")
+        prompt_parts.append("Write your private thoughts here. Analyze the situation, check your stats (Paranoia: {stats.paranoia}), and decide your strategy.")
+        prompt_parts.append("NO ONE hears this.")
+        prompt_parts.append("</internal_monologue>")
+        
+        prompt_parts.append("<public_speech>")
+        prompt_parts.append("Write ONLY what you say out loud to the council.")
+        prompt_parts.append("Do not include stage directions like '(shouting)' or actions.")
+        prompt_parts.append("</public_speech>")
+        
+        # FIX: Morning Reflection (Dream Injection)
+        try:
+            last_dream = self.memory.get_last_dream(self.agent_name)
+            if last_dream:
+                # Add it as a high-priority state of mind
+                prompt_parts.append(f"\nCURRENT STATE OF MIND: You have just woken up. Your last thought was: '{last_dream}'.")
+                prompt_parts.append(f"You are feeling: Confidence {stats.confidence}, Paranoia {stats.paranoia}, Loyalty {stats.loyalty_to_chairman}.")
+        except Exception as e:
+            logger.warning(f"Failed to inject morning reflection: {e}")
+
+        prompt_parts.append("\nExample:")
+        prompt_parts.append("<internal_monologue>")
+        prompt_parts.append("The Chairman is asking for updates. My paranoia is high (65). I suspect Midas is hiding funds. I should be vague but assertive.")
+        prompt_parts.append("</internal_monologue>")
+        prompt_parts.append("<public_speech>")
+        prompt_parts.append("Chairman, our reserves are secure, though I advise against reckless spending until we audit the latest transaction logs.")
+        prompt_parts.append("</public_speech>")
                 
         return " ".join(prompt_parts)
 
@@ -175,38 +206,83 @@ class IronAgent:
         user_message = situation_report
         if context:
             user_message = f"{context}\n\nPresent Situation: {situation_report}"
+
+        # FIX: Soul Anchor Injection
+        # Inject the current emotional state at the very bottom of the context
+        soul_status = {
+            "Identity": f"{self.soul.name} (YOU)",
+            "Archetype": self.soul.archetype,
+            "Current Mood": "Paranoid" if self.soul.dynamic_stats.paranoia > 60 else "Confident", # Simplified for token efficiency
+            "Energy": self.soul.dynamic_stats.energy,
+            "Active Goals": [g.description for g in self.soul.goals if g.active]
+        }
+        user_message += f"\n\n[CURRENT SOUL STATUS]\n{json.dumps(soul_status, indent=2)}"
             
         # Step A: Draft response
         if self.event_bus:
             from core.event_bus import EventType
             self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": self.agent_name, "step": "DRAFT"})
 
-        draft = self._generate_with_retry(
+        raw_response = self._generate_with_retry(
             system_prompt=system_prompt,
             user_message=user_message
         )
         
-        # Step B: Integrity check
-        check = self.integrity.check_integrity(self.soul, draft)
+        # FIX: Parse XML Straitjacket
+        import re
+        
+        # 1. Default values (in case parsing fails)
+        thought_text = ""
+        public_draft = raw_response
+        
+        # 2. Extract Thought (Internal Monologue)
+        thought_match = re.search(r'<internal_monologue>(.*?)</internal_monologue>', raw_response, re.DOTALL | re.IGNORECASE)
+        if thought_match:
+            thought_text = thought_match.group(1).strip()
+
+        # 3. Extract Speech (Public Output)
+        speech_match = re.search(r'<public_speech>(.*?)</public_speech>', raw_response, re.DOTALL | re.IGNORECASE)
+        if speech_match:
+            public_draft = speech_match.group(1).strip()
+        else:
+            # Fallback A: If agent forgot speech tags but used monologue tags
+            # Assume everything NOT in monologue tags is speech
+            if thought_match:
+                cleaner = re.sub(r'<internal_monologue>.*?</internal_monologue>', '', raw_response, flags=re.DOTALL | re.IGNORECASE)
+                public_draft = cleaner.strip()
+            
+            # Fallback B: If agent used OLD format (THOUGHT) despite instructions (Legacy Drift)
+            old_thought_match = re.search(r"\(THOUGHT\)\s*(.*?)\s*\(RESPONSE\)", raw_response, re.DOTALL | re.IGNORECASE)
+            if old_thought_match:
+                 thought_text = old_thought_match.group(1).strip()
+                 cleaner = re.sub(r"\(THOUGHT\)\s*.*?\s*\(RESPONSE\)", "", raw_response, flags=re.DOTALL | re.IGNORECASE)
+                 public_draft = cleaner.strip()
+
+        # Step B: Integrity check (Only on public draft)
+        check = self.integrity.check_integrity(self.soul, public_draft)
         
         # Step C: The Gate
         if check.get("approved"):
             logger.info(f"[AGENT: {self.agent_name}] Ego APPROVED draft. Speaking directly.")
             return {
-                "public_text": clean_agent_response(draft, self.agent_name),
-                "hidden_text": ""  # No conflict, no hidden thought needed? Or we could put the draft here?
+                "public_text": clean_agent_response(public_draft, self.agent_name),
+                "hidden_text": thought_text if thought_text else "" 
             }
         
         # Step D: Rewrite
         critique = check.get("critique", "No critique provided.")
-        hidden_thought = f"[REJECTED DRAFT]: {draft}\n[CRITIQUE]: {critique}"
-        # print(f"[DEBUG] Ego Critique: {critique}")
+        # If rejected, we show the thought AND the rejected draft in hidden text
+        hidden_thought = f"<internal_monologue>: {thought_text}\n[REJECTED DRAFT]: {public_draft}\n[CRITIQUE]: {critique}"
+        
         logger.info(f"[AGENT: {self.agent_name}] Ego REJECTED draft. Critique: {critique}")
         
         rewrite_prompt = (
             f"{system_prompt}\n\n"
             f"Your previous draft was rejected by your Ego because: {critique}. "
-            "Rewrite it to be more true to your current state."
+            "Rewrite ONLY the <public_speech> to be more true to your current state. "
+            "You MUST wrap your rewritten speech in <public_speech></public_speech> tags. "
+            "Do NOT include any preamble, thoughts, or analysis outside the tags. "
+            "Output ONLY: <public_speech>Your rewritten speech here.</public_speech>"
         )
         
         # Step E: Generate Rewritten Response
@@ -219,10 +295,17 @@ class IronAgent:
             user_message=user_message
         )
         
-        # Step F: Final Clean
-        cleaned_response = clean_agent_response(final_response, self.agent_name)
+        # Step F: Final Clean — Apply same XML extraction as Step A (NOT naive .replace())
+        rewrite_speech_match = re.search(r'<public_speech>(.*?)</public_speech>', final_response, re.DOTALL | re.IGNORECASE)
+        if rewrite_speech_match:
+            final_clean = clean_agent_response(rewrite_speech_match.group(1).strip(), self.agent_name)
+        else:
+            # Fallback: Strip any tags and preamble, take what remains
+            stripped = re.sub(r'<internal_monologue>.*?</internal_monologue>', '', final_response, flags=re.DOTALL | re.IGNORECASE)
+            stripped = re.sub(r'</?(?:public_speech|internal_monologue)>', '', stripped, flags=re.IGNORECASE)
+            final_clean = clean_agent_response(stripped.strip(), self.agent_name)
         
         return {
-            "public_text": cleaned_response,
+            "public_text": final_clean,
             "hidden_text": hidden_thought
         }

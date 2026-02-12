@@ -157,6 +157,9 @@ class LLMService:
                     logger.warning(f"Unknown model prefix for {model_name}. Falling back to OpenAI if possible.")
                     response_content = self._generate_openai("gpt-3.5-turbo", system_prompt, user_message)
             
+            # PHASE 4 LOGGING: Trace full interaction
+            logger.info(f"\n[LLM_TRACE] MODEL: {model_name}\n[PROMPT]: {user_message[:500]}...\n[RESPONSE]: {response_content[:500]}...\n[STATS] Len: {len(response_content)}")
+            
             return response_content
 
         except Exception as e:

@@ -9,7 +9,7 @@ logger = logging.getLogger("Heartbeat")
 
 SILENCE_THRESHOLD = 45.0  # Seconds before entropy increases
 TICK_RATE = 2.0           # Seconds per heartbeat tick
-LOCK_TTL = 60.0           # Seconds before the Conch is forcibly revoked (Increased from 30s)
+LOCK_TTL = 180.0           # Seconds before the Conch is forcibly revoked (Increased to 3 mins)
 
 class SpeakingLock:
     def __init__(self, ttl_seconds=LOCK_TTL):
@@ -65,7 +65,7 @@ class SpeakingLock:
         self.owner = agent_name
         self.acquired_at = now
         self._original_acquired_at = now  # FIX AUDIT-1.3: Track original acquisition
-        logger.info(f"[LOCK] {agent_name} acquired the Conch.")
+        logger.info(f"[LOCK] {agent_name} acquired the Conch at {now.strftime('%H:%M:%S.%f')[:-3]}")
         return True
 
     def release(self, agent_name: str):
@@ -82,7 +82,8 @@ class SpeakingLock:
         if self.owner == agent_name:
             self.owner = None
             self.acquired_at = None
-            logger.info(f"[LOCK] {agent_name} released the Conch.")
+            now = datetime.now()
+            logger.info(f"[LOCK] {agent_name} released the Conch at {now.strftime('%H:%M:%S.%f')[:-3]}")
         elif self.owner:
             # This captures the Race Condition explicitly in logs
             logger.error(f"[LOCK_CRITICAL] {agent_name} tried to release lock owned by {self.owner}!")
@@ -142,14 +143,37 @@ class Heartbeat:
     def lock(self):
         return self.speaking_lock
 
+    @property
+    def stats(self):
+        """Current heartbeat stats for initial sync."""
+        conch_expires_in = 0
+        if self.speaking_lock.acquired_at:
+             conch_expires_in = int(self.speaking_lock.ttl - (time.time() - self.speaking_lock.acquired_at.timestamp()))
+        return {
+            "time": time.time(),
+            "tension": self.global_tension,
+            "conch": {
+                "owner": self.speaking_lock.owner,
+                "expires_in": max(0, conch_expires_in)
+            }
+        }
+
     async def _tick(self):
-        # 1. Emit System Tick
+        # FIX BUG-06: Snapshot acquired_at to prevent race with force_release_conch
+        _acq_at = self.speaking_lock.acquired_at
+        conch_expires_in = 0
+        if _acq_at:
+            try:
+                conch_expires_in = int(self.speaking_lock.ttl - (datetime.now() - _acq_at).total_seconds())
+            except Exception:
+                conch_expires_in = 0
+
         await self.event_bus.publish(EventType.SYSTEM_TICK, {
             "time": time.time(),
             "tension": self.global_tension,
             "conch": {
                 "owner": self.speaking_lock.owner,
-                "expires_in": int(self.speaking_lock.ttl - (datetime.now() - self.speaking_lock.acquired_at).total_seconds()) if self.speaking_lock.acquired_at else 0
+                "expires_in": conch_expires_in
             }
         })
 

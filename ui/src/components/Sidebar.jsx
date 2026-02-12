@@ -1,6 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const AgentMonitor = ({ agent, status, onOpenGraph }) => {
+const matrixBlinkStyle = `
+@keyframes matrix-blink-pos {
+  0%, 100% { border-color: #000; }
+  50% { border-color: #22c55e; box-shadow: 0 0 10px #22c55e; }
+}
+
+@keyframes matrix-blink-neg {
+  0%, 100% { border-color: #000; }
+  50% { border-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+}
+
+.matrix-blink-positive {
+  animation: matrix-blink-pos 1.5s ease-in-out !important;
+}
+
+.matrix-blink-negative {
+  animation: matrix-blink-neg 1.5s ease-in-out !important;
+}
+`;
+
+const AgentMonitor = ({ agent, status, onOpenGraph, activity = {} }) => {
     const { id, name, stats, goals } = agent;
     const isParanoid = stats.paranoia > 70;
     const [showGoals, setShowGoals] = useState(false);
@@ -10,8 +30,12 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
     const statusDetails = status?.details || "";
     const phase = status?.phase || ""; // O, O, D, A
     // FIX 6.2: Expanded to show text overlay for all active OODA statuses, not just ACTING/THINKING
-    const isActing = ["ACTING", "THINKING", "OBSERVING", "ORIENTING", "DECIDING", "FEELING", "RECHARGING", "RECALLING"].includes(currentStatus);
+    const isActing = ["ACTING", "THINKING", "OBSERVING", "ORIENTING", "DECIDING", "FEELING", "RECHARGING", "RECALLING", "DREAMING"].includes(currentStatus) || (phase && phase !== "");
     const isWaiting = currentStatus === "WAITING_FOR_LOCK";
+
+    // Determine if this agent is currently performing an LLM step
+    const isLlmAgent = activity.llm_busy && activity.llm_agent === id;
+    const llmStep = isLlmAgent ? activity.llm_step : null;
 
     // Determine status color — FIX 6.2: Added colors for all OODA phases
     let statusColor = "bg-gray-100 text-gray-500";
@@ -24,6 +48,11 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
     if (currentStatus === "RECALLING") statusColor = "bg-purple-50 text-purple-700 animate-pulse";
     if (currentStatus === "FEELING") statusColor = "bg-pink-50 text-pink-700 animate-pulse";
     if (currentStatus === "RECHARGING") statusColor = "bg-amber-50 text-amber-700";
+    if (currentStatus === "DREAMING") statusColor = "bg-indigo-100 text-indigo-800 animate-pulse";
+
+    // Special colors for transient updates within a phase
+    if (currentStatus === "RELATIONSHIP_UPDATE" || currentStatus === "STAT_UPDATE") statusColor = "bg-blue-50 text-blue-700 border-blue-200 border animate-pulse";
+    if (currentStatus === "NARRATIVE_VERDICT") statusColor = "bg-amber-50 text-[#854d0e] border-[#854d0e] border";
 
     // Get top active goal
     const topGoal = goals?.find(g => g.active && g.progress < 100) || { description: "No active goals", progress: 0 };
@@ -41,20 +70,40 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
                 )}
             </div>
 
-            {/* OODA Indicators */}
-            <div className="flex gap-0.5 px-1 py-0.5 bg-gray-50 border-b border-gray-100">
-                {['O', 'O', 'D', 'A'].map((p, i) => {
-                    const isActive = phase === p && (
-                        (i === 0 && currentStatus === "OBSERVING") ||
-                        (i === 1 && currentStatus === "ORIENTING") ||
-                        (i === 2 && (currentStatus === "DECIDING" || currentStatus === "RECALLING")) ||
-                        (i === 3 && (currentStatus === "ACTING" || currentStatus === "THINKING" || currentStatus === "WAITING_FOR_LOCK"))
-                    );
-                    return (
-                        <div key={i} className={`flex-1 h-1 border border-gray-300 transition-colors ${isActive ? 'bg-indigo-600' : 'bg-gray-200'}`}></div>
-                    );
-                })}
-            </div>
+            {/* Signal Pipeline — 6-segment cycle progress */}
+            {(() => {
+                const PIPELINE = [
+                    { label: 'OBS', statuses: ['OBSERVING', 'FEELING'] },
+                    { label: 'ORI', statuses: ['ORIENTING', 'RECHARGING'] },
+                    { label: 'DEC', statuses: ['DECIDING'] },
+                    { label: 'RCL', statuses: ['RECALLING'] },
+                    { label: 'GEN', statuses: ['THINKING', 'WAITING_FOR_LOCK'] },
+                    { label: 'OUT', statuses: ['ACTING'] },
+                ];
+                // Find active stage index (-1 if IDLE)
+                const activeIdx = currentStatus === 'IDLE' ? -1 :
+                    PIPELINE.findIndex(s => s.statuses.includes(currentStatus));
+                return (
+                    <div className="px-1 py-0.5 bg-gray-50 border-b border-gray-100">
+                        <div className="flex gap-px">
+                            {PIPELINE.map((stage, i) => {
+                                const isFilled = activeIdx >= 0 && i <= activeIdx;
+                                const isCurrent = i === activeIdx;
+                                return (
+                                    <div key={i} className="flex-1 flex flex-col items-center">
+                                        <div className={`w-full h-1 border transition-all duration-300 ${isFilled
+                                            ? `bg-amber-600 border-amber-700 ${isCurrent ? 'animate-pulse' : ''}`
+                                            : 'bg-gray-200 border-gray-300'
+                                            }`} />
+                                        <span className={`text-[5px] font-mono leading-none mt-px select-none ${isFilled ? 'text-amber-800 font-bold' : 'text-gray-400'
+                                            }`}>{stage.label}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Conditional Display: Goals Overlay OR Stats/Status */}
             {showGoals ? (
@@ -70,7 +119,10 @@ const AgentMonitor = ({ agent, status, onOpenGraph }) => {
                     {/* Stats OR Status Message */}
                     {isActing || isWaiting ? (
                         <div className={`flex-1 flex flex-col justify-center items-center text-[9px] font-mono leading-tight px-1 text-center ${statusColor}`}>
-                            <span className="font-bold">{currentStatus}</span>
+                            <span className="font-bold flex items-center gap-1">
+                                {llmStep && <span className="text-[7px] bg-red-600 text-white px-0.5 rounded-sm animate-pulse">{llmStep}</span>}
+                                {currentStatus}
+                            </span>
                             <span className="text-[7px] opacity-75 leading-none mt-0.5 truncate w-full">{statusDetails}</span>
                         </div>
                     ) : (
@@ -276,27 +328,27 @@ const HardwareMonitor = ({ activity = {} }) => {
             </div>
 
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.llm || activity.llm_busy
+                <div className={`w-4 h-2 border border-black ${ledStatus.llm || activity.llm_busy
                     ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
                     : 'bg-red-950'
-                    } ${activity.llm_busy ? 'animate-pulse' : ''}`}></div>
+                    } ${activity.llm_busy ? 'animate-blink-sharp' : ''}`}></div>
                 <span className="text-red-900">NEURAL</span>
             </div>
 
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.ego || activity.ego_busy
+                <div className={`w-4 h-2 border border-black ${ledStatus.ego || activity.ego_busy
                     ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
                     : 'bg-red-950'
-                    } ${activity.ego_busy ? 'animate-pulse' : ''}`}></div>
+                    } ${activity.ego_busy ? 'animate-blink-sharp' : ''}`}></div>
                 <span className="text-red-900">EGO</span>
             </div>
 
             {/* ROW 2 */}
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.phys || activity.phys_busy
+                <div className={`w-4 h-2 border border-black ${ledStatus.phys || activity.phys_busy
                     ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
                     : 'bg-red-950'
-                    } ${activity.phys_busy ? 'animate-pulse' : ''}`}></div>
+                    } ${activity.phys_busy ? 'animate-blink-sharp' : ''}`}></div>
                 <span className="text-red-900">PHYS</span>
             </div>
 
@@ -400,11 +452,120 @@ const WatchdogTerminal = ({ logs = [], statusText, activeAgents = {}, heartbeatS
     );
 };
 
-const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbeatStats, agentStatuses, systemState, activity, onOpenGraph }) => {
+const StratagemPlotter = ({ goalHistory, agents }) => {
+    const canvasRef = useRef(null);
+    const colors = ['#dc2626', '#2563eb', '#059669', '#7c3aed', '#d97706'];
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.fillStyle = '#f8fafc'; // Light Slate
+        ctx.fillRect(0, 0, w, h);
+
+        // Grid
+        ctx.strokeStyle = '#cbd5e1'; // Slate 300
+        ctx.lineWidth = 0.5 * dpr;
+        for (let i = 1; i < 10; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, (h / 10) * i);
+            ctx.lineTo(w, (h / 10) * i);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo((w / 10) * i, 0);
+            ctx.lineTo((w / 10) * i, h);
+            ctx.stroke();
+        }
+
+        // Plot Lines
+        agents.forEach((agent, i) => {
+            const history = goalHistory[agent.name] || [];
+            if (history.length < 2) return;
+
+            ctx.strokeStyle = colors[i % colors.length];
+            ctx.lineWidth = 2 * dpr;
+            ctx.beginPath();
+
+            const xStep = w / 20;
+            history.forEach((val, idx) => {
+                const x = idx * xStep;
+                const y = h - (val / 100) * h;
+                if (idx === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Dots
+            history.forEach((val, idx) => {
+                const x = idx * xStep;
+                const y = h - (val / 100) * h;
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fillRect(x - 1, y - 1, 3, 3);
+            });
+        });
+    }, [goalHistory, agents]);
+
+    return (
+        <div className="bg-white border-2 border-claw-border p-1 shadow-sharp overflow-hidden flex-1 h-[90px]">
+            <div className="text-[6px] text-gray-500 font-bold mb-1 flex justify-between items-center uppercase h-3">
+                <span className="truncate">STRATAGEM_PLOTTER</span>
+                <div className="flex gap-1 overflow-hidden ml-1">
+                    {agents.map((a, i) => (
+                        <div key={a.id} className="flex items-center gap-0.5">
+                            <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors[i % colors.length] }}></div>
+                            <span className="text-[5px] text-gray-600 leading-none">{a.id.split('_')[1]?.toUpperCase().slice(0, 3) || a.id.slice(0, 3)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <canvas
+                ref={canvasRef}
+                width={140}
+                height={70}
+                className="w-full h-[68px]"
+                style={{ imageRendering: 'pixelated' }}
+            />
+        </div>
+    );
+};
+
+const ProtocolLedger = ({ verdicts }) => {
+    return (
+        <div className="bg-[#fefce8] border-2 border-[#854d0e] p-1 shadow-sharp h-[90px] font-mono text-[6px] relative overflow-hidden flex-1 protocol-ledger">
+            <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 0)', backgroundSize: '4px 4px' }}></div>
+
+            <div className="text-[7px] font-bold text-[#854d0e] border-b border-[#a16207] mb-0.5 flex justify-between items-center whitespace-nowrap overflow-hidden">
+                <span className="truncate">SYSTEM_PROTOCOL_LEDGER</span>
+                <span className="animate-pulse">● PRINTING</span>
+            </div>
+
+            <div className="flex flex-col gap-0.5 h-[72px] overflow-y-auto no-scrollbar">
+                {verdicts.length === 0 && <div className="text-gray-400 italic">No logs.</div>}
+                {verdicts.map((v, i) => (
+                    <div key={i} className="border-b border-dashed border-gray-200 pb-0.5 last:border-0 leading-tight">
+                        <div className="flex justify-between font-bold flex-wrap gap-x-1">
+                            <span className="text-black uppercase truncate">{v.agent[0]}: {v.delta > 0 ? '+' : ''}{v.delta}%</span>
+                            <span className="text-[#a16207] truncate">{v.goal.slice(0, 10)}...</span>
+                        </div>
+                        <div className="text-gray-700 italic truncate w-full">"{v.details}"</div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbeatStats, agentStatuses, systemState, activity, onOpenGraph, verdicts = [], goalHistory = {} }) => {
     const [spinnerIndex, setSpinnerIndex] = useState(0);
     const [isPulsing, setIsPulsing] = useState(false);
     const diaryRef = useRef(null);
     const diaryIsAtBottomRef = useRef(true);
+    const [matrixBlink, setMatrixBlink] = useState('none');
+    const prevTrustsRef = useRef({});
     const spinnerFrames = ['|', '/', '-', '\\'];
 
     const handleDiaryScroll = () => {
@@ -460,6 +621,42 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
 
     const dreamPosts = posts.filter(p => p.type === 'dream' || p.type === 'dream_stream');
 
+    // Social Matrix Blink Logic
+    useEffect(() => {
+        let blink = 'none';
+        const currentTrusts = {};
+        let hasChange = false;
+
+        agents.forEach(agent => {
+            currentTrusts[agent.id] = {};
+            const prevAgentTrusts = prevTrustsRef.current[agent.id] || {};
+
+            Object.entries(agent.relationships || {}).forEach(([target, rel]) => {
+                const score = rel.trust_score ?? 0;
+                currentTrusts[agent.id][target] = score;
+
+                if (prevAgentTrusts.hasOwnProperty(target)) {
+                    const prevScore = prevAgentTrusts[target];
+                    if (score > prevScore) {
+                        blink = 'positive';
+                        hasChange = true;
+                    } else if (score < prevScore) {
+                        if (blink !== 'positive') blink = 'negative';
+                        hasChange = true;
+                    }
+                }
+            });
+        });
+
+        if (hasChange) {
+            setMatrixBlink(blink);
+            const timer = setTimeout(() => setMatrixBlink('none'), 1500);
+            prevTrustsRef.current = currentTrusts;
+            return () => clearTimeout(timer);
+        }
+        prevTrustsRef.current = currentTrusts;
+    }, [agents]);
+
     return (
         <div className="w-80 h-screen flex flex-col bg-[#d1d5db] border-r-2 border-claw-border shadow-2xl z-50 overflow-hidden relative">
             {/* Header / Brand */}
@@ -480,6 +677,8 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                 {/* 0. MISSION STATUS */}
                 <MissionStatus heartbeatStats={heartbeatStats} systemState={systemState} />
 
+
+
                 {/* 1. AGENT_MONITORS Area */}
                 <div className="p-3 border-b border-gray-400 bg-gray-200">
                     <div className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mb-2 flex justify-between items-center">
@@ -493,9 +692,16 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                                 agent={agent}
                                 status={agentStatuses?.[agent.id]}
                                 onOpenGraph={onOpenGraph}
+                                activity={activity}
                             />
                         ))}
                     </div>
+                </div>
+
+                {/* --- STRATEGIC DASHBOARD --- */}
+                <div className="px-3 py-1 bg-gray-200 flex gap-2">
+                    <StratagemPlotter goalHistory={goalHistory} agents={agents} />
+                    <ProtocolLedger verdicts={verdicts} />
                 </div>
 
                 {/* 2. SOCIAL_MATRIX Area */}
@@ -503,7 +709,8 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                     <div className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mb-2">
                         <span>// SOCIAL_MATRIX</span>
                     </div>
-                    <div className="bg-white border-2 border-claw-border p-1 shadow-sharp">
+                    <div className={`bg-white border-2 border-claw-border p-1 shadow-sharp ${matrixBlink === 'positive' ? 'matrix-blink-positive' : matrixBlink === 'negative' ? 'matrix-blink-negative' : ''}`}>
+                        <style>{matrixBlinkStyle}</style>
                         <table className="w-full text-[9px] font-mono">
                             <thead>
                                 <tr className="border-b-2 border-black">

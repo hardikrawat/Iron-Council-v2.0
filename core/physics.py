@@ -360,3 +360,107 @@ Output ONLY an integer.
         except Exception as e:
             logger.error(f"Error in calculate_relationship_update: {e}")
             return 0
+
+    def adjudicate_narrative(
+        self,
+        recent_history: List[Dict[str, str]],
+        active_goals: Dict[str, Dict[str, int]]
+    ) -> Dict[str, Dict[str, int]]:
+        """
+        The "Gamemaster Loop". Analyzes a batch of messages to determine goal progress.
+        
+        Args:
+            recent_history: List of dicts [{'agent': 'Ares', 'text': '...'}]
+            active_goals: Dict mapping AgentName -> {GoalDescription: CurrentProgress}
+            
+        Returns:
+            Dict mapping AgentName -> {GoalDescription: DeltaInt}
+        """
+        # 1. Format Context
+        conversations = []
+        for msg in recent_history:
+            agent = msg.get('agent', 'Unknown')
+            text = msg.get('text', '')
+            conversations.append(f"{agent}: {text}")
+        conversation_block = "\n".join(conversations)
+
+        # 2. Format Goals
+        goals_block = []
+        for agent_name, goals in active_goals.items():
+            if not goals:
+                continue
+            g_list = [f"'{desc}' ({prog}%)" for desc, prog in goals.items()]
+            goals_block.append(f"- {agent_name}: {', '.join(g_list)}")
+        goals_text = "\n".join(goals_block)
+        
+        if not goals_text:
+            return {}
+
+        system_prompt = (
+            "You are the GAMEMASTER and ADJUDICATOR of a high-stakes political simulation.\n\n"
+            "YOUR TASK:\n"
+            "Analyze the following conversation snippet. Determine if the agents made REAL progress toward their specific goals, or if they suffered setbacks.\n\n"
+            "RULES:\n"
+            "1. **Zero-Sum Dynamics:** If 'War' makes progress, 'Peace' MUST regress. If two goals conflict, one gain is another's loss.\n"
+            "2. **Talk vs. Action:** Empty threats = 0 change. Successful intimidation, securing resources, or gaining allies = Positive change.\n"
+            "3. **Failures:** Being blocked, mocked, or outvoted = Negative change.\n"
+            "4. **Magnitude:**\n"
+            "   - Small shift (1-5%): Minor agreement/disagreement.\n"
+            "   - Medium shift (10-15%): Major resource transfer or strategic victory.\n"
+            "   - Critical shift (20%+): Total dominance or capitulation.\n\n"
+            "output JSON ONLY in this exact format:\n"
+            "{\n"
+            "  \"AgentName\": {\n"
+            "    \"Goal Keyword\": {\"delta\": int, \"reason\": \"Concise bureaucratic verdict (max 10 words)\"}\n"
+            "  }\n"
+            "}"
+        )
+
+        user_prompt = (
+            f"CURRENT GOALS:\n{goals_text}\n\n"
+            f"CONVERSATION LOG:\n{conversation_block}\n\n"
+            "Analyze and return the goal progress deltas and reasons in JSON."
+        )
+
+        try:
+            response_text = self.llm_service.generate_response(
+                model_name=self.system_model,
+                system_prompt=system_prompt,
+                user_message=user_prompt
+            )
+
+            # Clean JSON
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            # Remove '+' signs if present in values
+            response_text = re.sub(r':\s*\+(\d+)', r': \1', response_text)
+
+            deltas = json.loads(response_text)
+            
+            # Validate structure
+            validated_deltas = {}
+            for agent, impacts in deltas.items():
+                if not isinstance(impacts, dict): continue
+                validated_deltas[agent] = {}
+                for goal_key, data in impacts.items():
+                    try:
+                        if isinstance(data, dict):
+                            validated_deltas[agent][goal_key] = {
+                                "delta": int(data.get("delta", 0)),
+                                "reason": str(data.get("reason", "Strategic shift"))
+                            }
+                        else:
+                            # Fallback for simple int
+                            validated_deltas[agent][goal_key] = {"delta": int(data), "reason": "Strategic shift"}
+                    except (ValueError, TypeError):
+                        pass
+            
+            logger.info(f"[GAMEMASTER] Adjudicated Narrative. Verdicts: {validated_deltas}")
+            return validated_deltas
+
+        except Exception as e:
+            logger.error(f"[GAMEMASTER] Error adjudicating narrative: {e}")
+            return {}
