@@ -271,37 +271,37 @@ const HardwareMonitor = ({ activity = {} }) => {
         <div className="p-2 bg-gray-300 border-b border-gray-400 grid grid-cols-3 gap-y-2 gap-x-1 font-mono text-[8px]">
             {/* ROW 1 */}
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.disk ? 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'bg-amber-950'}`}></div>
+                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.disk ? 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'bg-red-950'}`}></div>
                 <span className="text-gray-600">DISK</span>
             </div>
 
             <div className="flex flex-col items-center gap-1">
                 <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.llm || activity.llm_busy
-                    ? 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]'
-                    : 'bg-cyan-950'
+                    ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
+                    : 'bg-red-950'
                     } ${activity.llm_busy ? 'animate-pulse' : ''}`}></div>
-                <span className="text-cyan-700">NEURAL</span>
+                <span className="text-red-900">NEURAL</span>
             </div>
 
             <div className="flex flex-col items-center gap-1">
                 <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.ego || activity.ego_busy
-                    ? 'bg-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.8)]'
-                    : 'bg-fuchsia-950'
+                    ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
+                    : 'bg-red-950'
                     } ${activity.ego_busy ? 'animate-pulse' : ''}`}></div>
-                <span className="text-fuchsia-700">EGO</span>
+                <span className="text-red-900">EGO</span>
             </div>
 
             {/* ROW 2 */}
             <div className="flex flex-col items-center gap-1">
                 <div className={`w-4 h-2 border border-black transition-all duration-100 ${ledStatus.phys || activity.phys_busy
-                    ? 'bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]'
-                    : 'bg-blue-950'
+                    ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
+                    : 'bg-red-950'
                     } ${activity.phys_busy ? 'animate-pulse' : ''}`}></div>
-                <span className="text-blue-700">PHYS</span>
+                <span className="text-red-900">PHYS</span>
             </div>
 
             <div className="flex flex-col items-center gap-1">
-                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.net ? 'bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.8)]' : 'bg-green-950'}`}></div>
+                <div className={`w-4 h-2 border border-black transition-colors ${ledStatus.net ? 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'bg-red-950'}`}></div>
                 <span className="text-gray-600">NET</span>
             </div>
 

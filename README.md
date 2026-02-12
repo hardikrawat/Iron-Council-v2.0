@@ -95,10 +95,8 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 - Python 3.11+
 - Node.js 18+ (for the visual layer)
 - At least one of:
-  - OpenAI API key
-  - Anthropic API key
-  - Google Gemini API key
-  - Local [Ollama](https://ollama.ai) installation
+  - Local [Ollama](https://ollama.ai) installation (Recommended)
+  - OpenAI API key / Anthropic API key Google Gemini API key (Unstable / WIP)
 
 ### Setup
 
@@ -121,6 +119,16 @@ cp .env.example .env
 # Install frontend dependencies
 cd ui && npm install && cd ..
 ```
+
+---
+
+## LLM Recommendations
+
+For a stable and intelligent experience, we recommend using **Ollama** with a model size of at least **7B parameters**. Smaller models (like 1B or 3B) often fail to maintain & understand the complex BDI logic and OODA loops required for the simulation & give wrong prompts!
+
+> [!IMPORTANT]
+> **Recommended Model:** `qwen2.5:7b` or higher.
+> **Status Warning:** Google Gemini Cloud API support is currently experimental and unstable (Work-In-Progress).
 
 ---
 
@@ -211,7 +219,7 @@ alliance. The Chairman seems receptive. I must press harder next session.
 | `GEMINI_API_KEY` | your-key | Optional (for Gemini models) |
 | `LLM_PROVIDER` | `cloud` or `local` | `cloud` |
 | `LOCAL_LLM_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
-| `LOCAL_MODEL_NAME` | Local model name | `llama3` |
+| `LOCAL_MODEL_NAME` | Local model name (>=7b recommended) | `qwen2.5:7b` |
 | `LLM_TIMEOUT` | Request timeout in seconds | `120` |
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
 | `HEARTBEAT_TICK_RATE` | Main loop frequency (seconds) | `2.0` |
@@ -396,7 +404,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- LLM providers: Cloud AI APIs (OpenAI, Anthropic) And local Models via The Ollama!
+- LLM providers: Cloud AI APIs (OpenAI, Anthropic), Gemini (WIP), and local Models via Ollama (Recommended)!
 - Vector memory: ChromaDB
 - Data validation: Pydantic v2
 - Web backend: FastAPI + Uvicorn

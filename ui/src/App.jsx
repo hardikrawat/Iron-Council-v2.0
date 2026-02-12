@@ -357,16 +357,20 @@ function App() {
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col h-screen relative">
 
-                {/* Scrollable Thread View */}
-                <div className="flex-1 overflow-y-auto p-4 pb-32 scrollbar-hide">
+                {/*Header */}
+                <div className="bg-claw-bg z-20 p-4 pb-0">
                     <div className="max-w-3xl mx-auto">
-                        {/* Thread Title */}
-                        <div className="text-xl font-bold text-[#af0a0f] mb-6 text-center tracking-tight border-b-2 border-[#af0a0f] pb-2">
+                        <div className="text-xl font-bold text-[#af0a0f] text-center tracking-tight border-b-2 border-[#af0a0f] pb-2">
                             /ic/ - Iron Council Simulation <span className="text-xs font-normal text-gray-500">[Thread #849102]</span>
                         </div>
+                    </div>
+                </div>
 
+                {/* Scrollable Thread View */}
+                <div className="flex-1 overflow-y-auto p-4 pt-0 pb-32 scrollbar-hide">
+                    <div className="max-w-3xl mx-auto">
                         {/* Posts Container */}
-                        <div className="space-y-4 post-container">
+                        <div className="space-y-4 post-container pt-6">
                             {posts.map((post, idx) => {
                                 // Skip dream posts in the main chat as they are now in the sidebar
                                 if (post.type === 'dream' || post.type === 'dream_stream') return null;

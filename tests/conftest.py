@@ -37,7 +37,7 @@ from core.integrity import IntegrityMonitor
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL = "qwen2.5:14b"
+OLLAMA_MODEL = "qwen2.5:7b"
 
 # Canonical agent definitions from docs/README
 AGENT_ARCHETYPES = {

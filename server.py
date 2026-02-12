@@ -554,7 +554,18 @@ async def websocket_endpoint(websocket: WebSocket):
             }
             for a in simulation.agents
         ]
-        await websocket.send_json({"type": "init", "data": initial_state})
+        
+        # Send System Config (LLM Provider)
+        system_config = {
+            "llm_provider": simulation.llm.get_active_model_name(),
+            "llm_override": simulation.llm.provider_override
+        }
+        
+        await websocket.send_json({
+            "type": "init", 
+            "data": initial_state,
+            "config": system_config
+        })
         
         # Send Logs
         if SystemLogger.log_buffer:

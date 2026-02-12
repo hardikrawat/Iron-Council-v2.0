@@ -34,7 +34,7 @@ class TestLLMFailureResilience:
             # If it defines a retry, test that.
             # Assuming it should propagate a known exception or handle it
             try:
-                llm.generate_response("test", "test", "qwen2.5:14b")
+                llm.generate_response("test", "test", "qwen2.5:7b")
             except Exception as e:
                 # Should not be a raw crash, but a handled error
                 pass

@@ -17,7 +17,7 @@ class SoulFactory:
     @staticmethod
     def ares(confidence=75, paranoia=15, loyalty=20, stress=25, energy=100, **kwargs):
         return AgentSoul(
-            name="General Ares", archetype="General", base_model="qwen2.5:14b",
+            name="General Ares", archetype="General", base_model="qwen2.5:7b",
             core_values=["Strength", "Hierarchy", "Decisiveness"],
             dynamic_stats=DynamicStats(confidence=confidence, paranoia=paranoia,
                                        loyalty_to_chairman=loyalty, stress_level=stress, energy=energy),
@@ -34,7 +34,7 @@ class SoulFactory:
     @staticmethod
     def dove(confidence=50, paranoia=10, loyalty=60, stress=15, energy=100, **kwargs):
         return AgentSoul(
-            name="Diplomat Dove", archetype="Diplomat", base_model="qwen2.5:14b",
+            name="Diplomat Dove", archetype="Diplomat", base_model="qwen2.5:7b",
             core_values=["Peace", "Negotiation", "Empathy"],
             dynamic_stats=DynamicStats(confidence=confidence, paranoia=paranoia,
                                        loyalty_to_chairman=loyalty, stress_level=stress, energy=energy),
@@ -51,7 +51,7 @@ class SoulFactory:
     @staticmethod
     def midas(confidence=65, paranoia=20, loyalty=45, stress=20, energy=100, **kwargs):
         return AgentSoul(
-            name="Banker Midas", archetype="Banker", base_model="qwen2.5:14b",
+            name="Banker Midas", archetype="Banker", base_model="qwen2.5:7b",
             core_values=["Profit", "Efficiency", "Risk Management"],
             dynamic_stats=DynamicStats(confidence=confidence, paranoia=paranoia,
                                        loyalty_to_chairman=loyalty, stress_level=stress, energy=energy),
@@ -68,7 +68,7 @@ class SoulFactory:
     @staticmethod
     def logic(confidence=55, paranoia=5, loyalty=50, stress=10, energy=100, **kwargs):
         return AgentSoul(
-            name="Analyst Logic", archetype="Analyst", base_model="qwen2.5:14b",
+            name="Analyst Logic", archetype="Analyst", base_model="qwen2.5:7b",
             core_values=["Data", "Objectivity", "Precision"],
             dynamic_stats=DynamicStats(confidence=confidence, paranoia=paranoia,
                                        loyalty_to_chairman=loyalty, stress_level=stress, energy=energy),

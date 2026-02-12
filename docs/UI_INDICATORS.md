@@ -8,11 +8,11 @@ Located in the sidebar, these 6 LEDs provide real-time feedback on the system's 
 | LED | Label | Color | Trigger (Backend Event) | Meaning |
 | :--- | :--- | :--- | :--- | :--- |
 | **CORE** | HEART | Red Pulse | `HEARTBEAT` (Every 2s) | The system clock is running and the Event Bus is active. If this stops, the backend is frozen. |
-| **DISK** | DISK | Amber | `MEMORY_ACCESS`, `STATE_SAVE` | The system is reading/writing to JSON files (Agent Souls) or the Vector Database. |
-| **NEURAL** | NEURAL | Cyan | `LLM_ACTIVITY` | An agent is currently querying the Large Language Model (User/Assistant inference). |
-| **EGO** | EGO | Fuchsia | `EGO_CHECK` | The "Ego Filter" is validating a generated response against an agent's core values before publishing. |
-| **PHYS** | PHYS | Blue | `PHYSICS_SYNC` | The Physics Engine is calculating trust updates or stat changes based on recent events. |
-| **UPLINK** | UPLINK | Green | `WS_MESSAGE` | Network activity between the Python backend and the React frontend (WebSocket traffic). |
+| **DISK** | DISK | Red | `MEMORY_ACCESS`, `STATE_SAVE` | The system is reading/writing to JSON files (Agent Souls) or the Vector Database. |
+| **NEURAL** | NEURAL | Red | `LLM_ACTIVITY` | An agent is currently querying the Large Language Model (User/Assistant inference). |
+| **EGO** | EGO | Red | `EGO_CHECK` | The "Ego Filter" is validating a generated response against an agent's core values before publishing. |
+| **PHYS** | PHYS | Red | `PHYSICS_SYNC` | The Physics Engine is calculating trust updates or stat changes based on recent events. |
+| **UPLINK** | UPLINK | Red | `WS_MESSAGE` | Network activity between the Python backend and the React frontend (WebSocket traffic). |
 
 ---
 

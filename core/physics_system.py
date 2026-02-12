@@ -136,14 +136,14 @@ class PhysicsSystem:
 
         logger.info(f"[PHYSICS] Analyzing Speech by {speaker_name}...")
 
-        tasks = []
+        # FIX PERF-Local-01: Sequential Execution to prevent Local Ollama Flooding
+        # We process reactions one by one to avoid saturating VRAM/Compute on local machines.
         for listener in self.agents:
             if listener.agent_name == speaker_name:
                 continue # Don't react to self
             
-            tasks.append(self._process_reaction(listener, speaker_name, content))
-        
-        await asyncio.gather(*tasks)
+            # Await each reaction individually
+            await self._process_reaction(listener, speaker_name, content)
 
     async def _process_reaction(self, listener: IronAgent, speaker_name: str, content: str):
         try:

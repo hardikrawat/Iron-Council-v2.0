@@ -46,3 +46,6 @@ build/
 # Frontend
 node_modules/
 ui/dist/
+
+# Logs
+logs/

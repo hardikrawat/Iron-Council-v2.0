@@ -7,7 +7,7 @@ import openai
 from anthropic import Anthropic
 import re
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 import requests
 import hashlib
 import json
@@ -95,52 +95,97 @@ class LLMService:
         self._call_anthropic = self._generate_anthropic
         self._call_ollama = self._generate_local
 
+    def get_active_model_name(self, requested_model: str = "") -> str:
+        """
+        Returns the actual model name being used based on override/config.
+        """
+        if self.provider_override == "local":
+            return f"LOCAL:{self.local_model_name}"
+        if requested_model.startswith("local"):
+             return f"LOCAL:{requested_model}"
+        if requested_model:
+            return f"CLOUD:{requested_model}"
+        # Default
+        if self.gemini_enabled and not self.openai_client:
+             return "CLOUD:gemini-2.0-flash"
+        return "CLOUD:gpt-3.5-turbo"
+
     def generate_response(self, model_name: str, system_prompt: str, user_message: str) -> str:
         """
-        Generates a response using the specified model.
+        Generates a response from the specified LLM model.
         Falls back to gpt-3.5-turbo if the request fails (unless local is forced).
         """
         # Emit Activity START Signal
+        start_time = time.time()
+        # FIX: Use real model name
+        provider_type = self.get_active_model_name(model_name)
+        
         if self.event_bus:
             from core.event_bus import EventType
-            self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"status": "START", "model": model_name})
+            self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {
+                "status": "START", 
+                "model": model_name,
+                "provider": provider_type
+            })
 
+        response_content = ""
         try:
             if self.testing:
                 cached = self.cache.get(model_name, system_prompt, user_message)
                 if cached:
+                    response_content = cached
                     return cached
 
             if self.provider_override == "local":
-                return self._generate_local(model_name, system_prompt, user_message)
-
-            if model_name.startswith("gpt"):
-                return self._generate_openai(model_name, system_prompt, user_message)
+                response_content = self._generate_local(model_name, system_prompt, user_message)
+            elif model_name.startswith("gpt"):
+                response_content = self._generate_openai(model_name, system_prompt, user_message)
             elif model_name.startswith("claude"):
-                return self._generate_anthropic(model_name, system_prompt, user_message)
+                response_content = self._generate_anthropic(model_name, system_prompt, user_message)
             elif model_name.startswith("gemini"):
-                return self._generate_gemini(model_name, system_prompt, user_message)
+                response_content = self._generate_gemini(model_name, system_prompt, user_message)
             elif model_name.startswith("local") or self.provider_override == "local":
-                return self._generate_local(model_name, system_prompt, user_message)
+                response_content = self._generate_local(model_name, system_prompt, user_message)
             else:
                 if self.provider_override == "local":
                     logger.info(f"[LLM] Routing '{model_name}' to LOCAL via provider_override.")
-                    return self._generate_local(model_name, system_prompt, user_message)
-                
-                if self.gemini_enabled and not self.openai_client:
+                    response_content = self._generate_local(model_name, system_prompt, user_message)
+                elif self.gemini_enabled and not self.openai_client:
                     logger.info(f"[LLM] Routing unknown model '{model_name}' to Gemini Default (gemini-2.0-flash)")
-                    return self._generate_gemini("gemini-2.0-flash", system_prompt, user_message)
+                    response_content = self._generate_gemini("gemini-2.0-flash", system_prompt, user_message)
+                else:
+                    logger.warning(f"Unknown model prefix for {model_name}. Falling back to OpenAI if possible.")
+                    response_content = self._generate_openai("gpt-3.5-turbo", system_prompt, user_message)
+            
+            return response_content
 
-                logger.warning(f"Unknown model prefix for {model_name}. Falling back to OpenAI if possible.")
-                return self._generate_openai("gpt-3.5-turbo", system_prompt, user_message)
         except Exception as e:
             logger.error(f"Error generating response with {model_name}: {e}")
             return self._fallback_response(system_prompt, user_message)
         finally:
-            # Emit Activity END Signal
+            # Calculate Metrics
+            end_time = time.time()
+            duration = end_time - start_time
+            char_count = len(response_content) if response_content else 0
+            
+            # FIX NET-01: Detect timeout/failure (0 chars) and report as error
+            if char_count == 0:
+                latency_ms = -1 
+                baud_rate = 0
+            else:
+                latency_ms = int(duration * 1000)
+                # Approx baud: chars * 8 bits (rough estimate for effect)
+                baud_rate = int((char_count * 8) / duration) if duration > 0 else 0
+
+            # Emit Activity END Signal with Metrics
             if self.event_bus:
                 from core.event_bus import EventType
-                self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"status": "END"})
+                self.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {
+                    "status": "END",
+                    "latency": latency_ms,
+                    "baud": baud_rate,
+                    "provider": provider_type
+                })
 
     def _generate_openai(self, model_name: str, system_prompt: str, user_message: str) -> str:
         if not self.openai_client:
@@ -179,9 +224,9 @@ class LLMService:
         if not self.gemini_enabled:
             raise ValueError("GEMINI_API_KEY not configured. Cannot use Gemini models.")
             
-        max_retries = 5
+        max_retries = 10  # Increased for stability
         backoff = 2
-        
+        import random
         
         for attempt in range(max_retries):
             try:
@@ -196,22 +241,34 @@ class LLMService:
                 if self.testing:
                     self.cache.set(model_name, system_prompt, user_message, response.text)
                 return response.text
-            except Exception as e:
-                # Check for 429 Resource Exhausted
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                
+            except (errors.ClientError, errors.APIError) as e:
+                # Handle 429 Resource Exhausted (and other transient errors if needed)
+                is_rate_limit = False
+                if isinstance(e, errors.ClientError) and e.code == 429:
+                    is_rate_limit = True
+                elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    is_rate_limit = True
+                    
+                if is_rate_limit:
                     if attempt < max_retries - 1:
-                        # Try to extract wait time from error message
-                        wait_time = backoff
-                        match = re.search(r"retry in ([0-9.]+)s", error_str)
-                        if match:
-                            wait_time = float(match.group(1)) + 1.0 # Add 1s buffer
+                        # Add jitter to prevent thundering herd
+                        jitter = random.uniform(0.5, 1.5)
+                        wait_time = (backoff * jitter)
                         
-                        logger.warning(f"Gemini Rate Limit Hit. Retrying in {wait_time:.1f}s... (Attempt {attempt+1}/{max_retries})")
+                        # Try to extract wait time from error message if available
+                        match = re.search(r"retry in ([0-9.]+)s", str(e))
+                        if match:
+                            wait_time = float(match.group(1)) + 1.0
+                        
+                        logger.warning(f"Gemini Rate Limit Hit (429). Retrying in {wait_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                         time.sleep(wait_time)
-                        backoff *= 2 # Exponential backoff fallback for next time
+                        backoff *= 2 # Exponential backoff
                         continue
                 logger.error(f"Gemini error: {e}")
+                raise e
+            except Exception as e:
+                logger.error(f"Gemini unexpected error: {e}")
                 raise e
 
     async def _run_blocking_stream(self, generator_func, *args, **kwargs):
@@ -261,50 +318,97 @@ class LLMService:
         """
         Asynchronously streams a response using the specified model.
         """
+        # STREAMING METRICS
+        start_time = time.time()
+        first_token_time = None
+        char_count = 0
+        provider_type = self.get_active_model_name(model_name)
+
         if self.event_bus:
              from core.event_bus import EventType
-             await self.event_bus.publish(EventType.LLM_ACTIVITY, {"status": "START", "model": model_name})
+             await self.event_bus.publish(EventType.LLM_ACTIVITY, {
+                 "status": "START", 
+                 "model": model_name,
+                 "provider": provider_type
+            })
 
         try:
+            # Helper to wrap the stream and track metrics
+            async def metric_wrapper(async_gen):
+                nonlocal first_token_time, char_count
+                async for chunk in async_gen:
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                        latency = int((first_token_time - start_time) * 1000)
+                        # Emit First Token Latency immediately
+                        if self.event_bus:
+                            await self.event_bus.publish(EventType.LLM_ACTIVITY, {
+                                "status": "lat_update",  # Intermediate update
+                                "latency": latency,
+                                "provider": provider_type
+                            })
+                    
+                    char_count += len(chunk)
+                    yield chunk
+
             # Local Override
             if self.provider_override == "local":
-                 async for chunk in self._generate_local_stream(model_name, system_prompt, user_message):
+                 async for chunk in metric_wrapper(self._generate_local_stream(model_name, system_prompt, user_message)):
                      yield chunk
                  return
 
             if model_name.startswith("gpt"):
                  # Wrap the blocking OpenAI call
-                 async for chunk in self._run_blocking_stream(self._generate_openai_stream_blocking, model_name, system_prompt, user_message):
+                 async for chunk in metric_wrapper(self._run_blocking_stream(self._generate_openai_stream_blocking, model_name, system_prompt, user_message)):
                      yield chunk
                      
             elif model_name.startswith("claude"):
                  # Wrap the blocking Anthropic call
-                 async for chunk in self._run_blocking_stream(self._generate_anthropic_stream_blocking, model_name, system_prompt, user_message):
+                 async for chunk in metric_wrapper(self._run_blocking_stream(self._generate_anthropic_stream_blocking, model_name, system_prompt, user_message)):
                      yield chunk
                      
             elif model_name.startswith("gemini"):
-                 async for chunk in self._run_blocking_stream(self._generate_gemini_stream_blocking, model_name, system_prompt, user_message):
+                 async for chunk in metric_wrapper(self._run_blocking_stream(self._generate_gemini_stream_blocking, model_name, system_prompt, user_message)):
                      yield chunk
                      
             elif model_name.startswith("local") or self.provider_override == "local":
-                 async for chunk in self._generate_local_stream(model_name, system_prompt, user_message):
+                 async for chunk in metric_wrapper(self._generate_local_stream(model_name, system_prompt, user_message)):
                      yield chunk
             else:
                 # Default fallback logic
                 if self.gemini_enabled and not self.openai_client:
-                     async for chunk in self._run_blocking_stream(self._generate_gemini_stream_blocking, "gemini-2.0-flash", system_prompt, user_message):
+                     async for chunk in metric_wrapper(self._run_blocking_stream(self._generate_gemini_stream_blocking, "gemini-2.0-flash", system_prompt, user_message)):
                          yield chunk
                 else:
-                    async for chunk in self._run_blocking_stream(self._generate_openai_stream_blocking, "gpt-3.5-turbo", system_prompt, user_message):
+                    async for chunk in metric_wrapper(self._run_blocking_stream(self._generate_openai_stream_blocking, "gpt-3.5-turbo", system_prompt, user_message)):
                         yield chunk
 
         except Exception as e:
             logger.error(f"Error streaming response with {model_name}: {e}")
             yield "[Agent Silent - Neural Link Severed]"
         finally:
+            # Calculate Final Baud Rate
+            end_time = time.time()
+            duration = end_time - start_time
+            
+            # FIX NET-01: Detect timeout/failure (0 chars) and report as error
+            if char_count == 0:
+                latency_ms = -1
+                baud_rate = 0
+            else:
+                # Use First Token Latency if available, else Total Duration
+                latency_ms = int((first_token_time - start_time) * 1000) if first_token_time else int(duration * 1000)
+                # Baud rate based on streaming duration
+                baud_rate = int((char_count * 8) / duration) if duration > 0 else 0
+
             if self.event_bus:
                 from core.event_bus import EventType
-                await self.event_bus.publish(EventType.LLM_ACTIVITY, {"status": "END"})
+                await self.event_bus.publish(EventType.LLM_ACTIVITY, {
+                    "status": "END",
+                    "latency": latency_ms,
+                    "baud": baud_rate,
+                    "provider": provider_type
+                })
 
     # --- BLOCKING GENERATORS (Run in Thread) ---
 
@@ -341,9 +445,10 @@ class LLMService:
         if not self.gemini_enabled:
             raise ValueError("GEMINI_API_KEY not configured.")
         
-        max_retries = 5
+        max_retries = 10 # Increased
         backoff = 2
         responses = None
+        import random
         
         for attempt in range(max_retries):
             try:
@@ -355,21 +460,30 @@ class LLMService:
                     contents=user_message,
                 )
                 break 
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+            except (errors.ClientError, errors.APIError) as e:
+                is_rate_limit = False
+                if isinstance(e, errors.ClientError) and e.code == 429:
+                     is_rate_limit = True
+                elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                     is_rate_limit = True
+                     
+                if is_rate_limit:
                     if attempt < max_retries - 1:
-                        # Blocking sleep is fine here since we are in a thread!
-                        import time
-                        wait_time = backoff
-                        match = re.search(r"retry in ([0-9.]+)s", error_str)
+                        # Jittered backoff
+                        jitter = random.uniform(0.5, 1.5)
+                        wait_time = (backoff * jitter)
+                        
+                        match = re.search(r"retry in ([0-9.]+)s", str(e))
                         if match:
                              wait_time = float(match.group(1)) + 1.0
                         
-                        logger.warning(f"Gemini Stream Rate Limit. Retrying in {wait_time:.1f}s...")
+                        logger.warning(f"Gemini Stream Rate Limit (429). Retrying in {wait_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                         time.sleep(wait_time)
                         backoff *= 2
                         continue
+                raise e
+            except Exception as e:
+                logger.error(f"Gemini stream unexpected error: {e}")
                 raise e
 
         # FIX MIN-02: Handle exhausted retries — don't iterate over None
@@ -491,10 +605,10 @@ class LLMService:
         """
         # If we are in local mode, FORCE the local model (unless valid local override is possible, but let's stick to simple)
         if self.provider_override == "local":
-             return self.local_model_name or "qwen2.5:14b"
+             return self.local_model_name or "qwen2.5:7b"
              
         if model_name == "local" or model_name.startswith("local/"):
-            return self.local_model_name or "qwen2.5:14b"
+            return self.local_model_name or "qwen2.5:7b"
         # If it's a specific model name passed through (like 'qwen2.5:14b'), use it
         return model_name
 

@@ -108,7 +108,7 @@ class TestActivityEventPayload:
         payload = {
             "type": "activity_event",
             "event": "LLM",
-            "data": {"agent": "general_ares", "model": "qwen2.5:14b"}
+            "data": {"agent": "general_ares", "model": "qwen2.5:7b"}
         }
         assert payload["event"] == "LLM", "LLM_ACTIVITY must map to 'LLM' — HardwareMonitor LED name"
 
