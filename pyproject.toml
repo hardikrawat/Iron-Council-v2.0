@@ -28,6 +28,6 @@ dependencies = [
 [project.scripts]
 iron-council = "server:run_cli"  # We'll need to add this entry point to server.py
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "memory*", "utils*", "server.py", "setup_env.py", "reset.py"]
+[tool.setuptools]
+py-modules = ["server", "setup_env", "reset"]
+packages = ["core", "memory", "utils"]
