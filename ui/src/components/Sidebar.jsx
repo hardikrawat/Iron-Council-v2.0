@@ -11,6 +11,21 @@ const matrixBlinkStyle = `
   50% { border-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
 }
 
+@keyframes float-up-fade {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-15px); opacity: 0; }
+}
+
+.floating-delta {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  font-size: 8px;
+  font-weight: bold;
+  pointer-events: none;
+  animation: float-up-fade 1.5s ease-out forwards;
+}
+
 .matrix-blink-positive {
   animation: matrix-blink-pos 1.5s ease-in-out !important;
 }
@@ -565,6 +580,7 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
     const diaryRef = useRef(null);
     const diaryIsAtBottomRef = useRef(true);
     const [matrixBlink, setMatrixBlink] = useState('none');
+    const [activeDeltas, setActiveDeltas] = useState({}); // { "agentId-targetId": { delta: +5, timestamp: 123 } }
     const prevTrustsRef = useRef({});
     const spinnerFrames = ['|', '/', '-', '\\'];
 
@@ -621,11 +637,12 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
 
     const dreamPosts = posts.filter(p => p.type === 'dream' || p.type === 'dream_stream');
 
-    // Social Matrix Blink Logic
+    // Social Matrix Blink + Floating Delta Logic
     useEffect(() => {
         let blink = 'none';
         const currentTrusts = {};
         let hasChange = false;
+        const newDeltas = { ...activeDeltas };
 
         agents.forEach(agent => {
             currentTrusts[agent.id] = {};
@@ -637,11 +654,19 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
 
                 if (prevAgentTrusts.hasOwnProperty(target)) {
                     const prevScore = prevAgentTrusts[target];
-                    if (score > prevScore) {
-                        blink = 'positive';
-                        hasChange = true;
-                    } else if (score < prevScore) {
-                        if (blink !== 'positive') blink = 'negative';
+                    if (score !== prevScore) {
+                        const delta = score - prevScore;
+                        const key = `${agent.id}-${target}`;
+
+                        // Track the new delta for floating animation
+                        newDeltas[key] = {
+                            val: delta > 0 ? `+${delta}` : delta,
+                            color: delta > 0 ? 'text-green-600' : 'text-red-600',
+                            ts: Date.now()
+                        };
+
+                        if (delta > 0) blink = 'positive';
+                        else if (blink !== 'positive') blink = 'negative';
                         hasChange = true;
                     }
                 }
@@ -650,11 +675,35 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
 
         if (hasChange) {
             setMatrixBlink(blink);
-            const timer = setTimeout(() => setMatrixBlink('none'), 1500);
+            setActiveDeltas(newDeltas);
+
+            // Clear animations after 1.5s
+            const timer = setTimeout(() => {
+                setMatrixBlink('none');
+                // We keep deltas for a bit but eventually they'll be replaced or could be cleaned
+            }, 1500);
+
             prevTrustsRef.current = currentTrusts;
             return () => clearTimeout(timer);
         }
         prevTrustsRef.current = currentTrusts;
+
+        // Cleanup old deltas every 5s if they haven't been updated
+        const cleanup = setInterval(() => {
+            const now = Date.now();
+            setActiveDeltas(prev => {
+                const next = { ...prev };
+                let deltaCleaned = false;
+                Object.entries(next).forEach(([k, v]) => {
+                    if (now - v.ts > 2000) {
+                        delete next[k];
+                        deltaCleaned = true;
+                    }
+                });
+                return deltaCleaned ? next : prev;
+            });
+        }, 5000);
+        return () => clearInterval(cleanup);
     }, [agents]);
 
     return (
@@ -726,8 +775,14 @@ const Sidebar = ({ agents, posts, statusText, activeAgents, systemLogs, heartbea
                                             if (a.id === b.id) return <td key={b.id} className="text-center text-gray-300 bg-gray-50">-</td>;
                                             const score = a.relationships?.[b.name]?.trust_score ?? 0;
                                             return (
-                                                <td key={b.id} className={`text-center font-bold ${score > 0 ? 'text-green-600' : score < 0 ? 'text-red-700' : 'text-gray-400'}`}>
+                                                <td key={b.id} className={`text-center font-bold relative ${score > 0 ? 'text-green-600' : score < 0 ? 'text-red-700' : 'text-gray-400'}`}>
                                                     {score > 0 ? '+' : ''}{score}
+                                                    {/* Floating Delta */}
+                                                    {activeDeltas[`${a.id}-${b.name}`] && (
+                                                        <span key={activeDeltas[`${a.id}-${b.name}`].ts} className={`floating-delta ${activeDeltas[`${a.id}-${b.name}`].color}`}>
+                                                            {activeDeltas[`${a.id}-${b.name}`].val}
+                                                        </span>
+                                                    )}
                                                 </td>
                                             );
                                         })}

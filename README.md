@@ -25,7 +25,8 @@ graph TD
         OODA_Midas -->|Decide| Lock
         
         Lock -->|Acquired| LLM[LLM Inference]
-        LLM -->|Act| EventBus
+        LLM -->|Draft| Integrity[Integrity Gatekeeper]
+        Integrity -->|Act| EventBus
     end
     
     EventBus -->|AGENT_SPEAK| PhysicsSystem[Physics System]
@@ -224,7 +225,7 @@ alliance. The Chairman seems receptive. I must press harder next session.
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
 | `HEARTBEAT_TICK_RATE` | Main loop frequency (seconds) | `2.0` |
 | `SILENCE_THRESHOLD` | Seconds before agents feel "Entropy/Anxiety" | `45` |
-| `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `60` |
+| `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `180` |
 
 ### Agent Soul State
 

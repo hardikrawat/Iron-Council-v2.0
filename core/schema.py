@@ -58,10 +58,10 @@ class AgentSoul(BaseModel):
         else:
             raise AttributeError(f"Stat '{stat_name}' does not exist in DynamicStats.")
 
-    def update_relationship(self, agent_name: str, amount: int, summary: str = ""):
+    def update_relationship(self, agent_name: str, amount: int, summary: str = "", hidden_agenda: str = None):
         """
         Safely modify a relationship's trust_score by clamping between -100 and 100.
-        Optionally updates the last_interaction_summary.
+        Optionally updates the last_interaction_summary and hidden_agenda.
         Creates the relationship entry if it doesn't exist.
         """
         if agent_name not in self.relationships:
@@ -71,6 +71,8 @@ class AgentSoul(BaseModel):
         rel.trust_score = max(-100, min(100, rel.trust_score + amount))
         if summary:
             rel.last_interaction_summary = summary
+        if hidden_agenda:
+            rel.hidden_agenda = hidden_agenda
 
     def update_goal_progress(self, goal_description: str, delta: int):
         """

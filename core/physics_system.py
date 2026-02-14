@@ -24,6 +24,7 @@ class PhysicsSystem:
         self.transcript = transcript # Shared reference to server.py's logs
         self.on_update = on_update   # Callback to save history
         self.message_buffer = [] # Gamemaster Loop Buffer
+        self.pending_tasks = set() # FIX: Track in-flight reactions for clean flush
 
     async def start(self):
         """
@@ -54,7 +55,10 @@ class PhysicsSystem:
         # We run these concurrently for performance
         tasks = []
         for agent in self.agents:
-            tasks.append(self._process_world_event_for_agent(agent, content))
+            task = asyncio.create_task(self._process_world_event_for_agent(agent, content))
+            self.pending_tasks.add(task)
+            task.add_done_callback(self.pending_tasks.discard)
+            tasks.append(task)
         
         await asyncio.gather(*tasks)
 
@@ -185,7 +189,11 @@ class PhysicsSystem:
         
         # Await all reactions in parallel
         if reaction_tasks:
-            await asyncio.gather(*reaction_tasks)
+            # FIX: Also track these in pending_tasks for flush synchronization
+            batch_task = asyncio.create_task(asyncio.gather(*reaction_tasks))
+            self.pending_tasks.add(batch_task)
+            batch_task.add_done_callback(self.pending_tasks.discard)
+            await batch_task
 
         # --- PROCESS GAMEMASTER LOOP (Narrative Adjudication) ---
         if speaker_name:
@@ -194,6 +202,23 @@ class PhysicsSystem:
              # Trigger every 3 messages (Lowered from 4)
              if len(self.message_buffer) >= 3:
                  await self._run_gamemaster_loop()
+
+    async def flush_all(self):
+        """
+        Forces the Gamemaster loop to run AND waits for all pending reactions.
+        Called during session-end for total synchronization.
+        """
+        logger.info("[PHYSICS] Initiating full flush...")
+        
+        # 1. Wait for all reaction/impact tasks currently in flight
+        if self.pending_tasks:
+            logger.info(f"[PHYSICS] Waiting for {len(self.pending_tasks)} pending reaction tasks...")
+            await asyncio.gather(*list(self.pending_tasks), return_exceptions=True)
+        
+        # 2. Flush the Gamemaster loop buffer
+        await self.flush_gamemaster_loop()
+        
+        logger.info("[PHYSICS] Full flush complete.")
 
     async def flush_gamemaster_loop(self):
         """

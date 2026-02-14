@@ -20,10 +20,16 @@
   }
 
   /* Dim existing content in dream mode */
-  body.dream-mode .post-container {
+  body.dream-mode .post-container>* {
     opacity: 0.5;
     filter: grayscale(0.6);
     transition: opacity 3s ease, filter 3s ease;
+  }
+
+  /* Keep the dream phase indicator bright as it shows active system state */
+  body.dream-mode .post-container .dream-banner {
+    opacity: 1 !important;
+    filter: none !important;
   }
 }
 
