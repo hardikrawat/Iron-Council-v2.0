@@ -25,7 +25,8 @@ graph TD
         OODA_Midas -->|Decide| Lock
         
         Lock -->|Acquired| LLM[LLM Inference]
-        LLM -->|Act| EventBus
+        LLM -->|Draft| Integrity[Integrity Gatekeeper]
+        Integrity -->|Act| EventBus
     end
     
     EventBus -->|AGENT_SPEAK| PhysicsSystem[Physics System]

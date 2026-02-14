@@ -18,7 +18,8 @@ graph TD
         OODA_Midas -->|Decide| Lock
         
         Lock -->|Acquired| LLM[LLM Inference]
-        LLM -->|Act| EventBus
+        LLM -->|Draft| Integrity[Integrity Gatekeeper]
+        Integrity -->|Act| EventBus
     end
     
     EventBus -->|AGENT_SPEAK| PhysicsSystem[Physics System]
@@ -39,7 +40,10 @@ Each agent runs an infinite `Observe-Orient-Decide-Act` loop (`core/ooda.py`).
 - **Observe**: Listens to the Event Bus for recent context.
 - **Orient**: Checks internal state (Energy, Stress, Paranoia).
 - **Decide**: Uses the **Heartbeat Conch** to ensure only one agent speaks at a time.
-- **Act**: Generates a response via LLM and publishes it back to the bus.
+- **Act**: Generates a response via LLM, validates it through the **Integrity Gatekeeper (Ego Filter)**, and publishes it back to the bus.
+
+### 2.1 The Integrity Gatekeeper
+The final checkpoint before speech (`core/integrity.py`). It uses a fast LLM pass to ensure an agent's response hasn't "drifted" from their core values or current emotional state (e.g., an arrogant agent should not apologize).
 
 ### 3. The Heartbeat & Entropy
 The `Heartbeat` (`core/heartbeat.py`) manages the simulation's tempo.
@@ -61,9 +65,15 @@ Agents are persistent entities (`core/schema.py`). Their state is saved to `agen
 - **Dynamic Stats**: Mutable values (0-100) like `Energy`, `Stress`.
 - **Relationships**: A directed graph of trust scores (-100 to 100) between agents.
 
+## Memory Systems
+The Iron Council uses a dual-memory approach:
+1. **Short-Term Memory**: The `EventBuffer` (`core/ooda.py`) stores the last 50 events for immediate OODA context.
+2. **Subjective Memory (ChromaDB)**: A vector database (`memory/store.py`) where agents store and recall "feelings" and "observations" via semantic search.
+
 ## Dreaming
 At the end of a session, agents enter the **Dream Phase** (`core/dream.py`).
 - They review the **Session Transcript**.
 - They analyze their **Trust Deltas** (who helped/hurt them).
 - They write a subjective **Diary Entry**.
+- **Stat Osmosis**: The simulation applies permanent stat updates and relationship shifts based on the "emotional residue" of the dream.
 - They form **Hidden Agendas** against enemies.

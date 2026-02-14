@@ -10,14 +10,15 @@ graph TD
         OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]
         OODA -->|Decide| Lock{"The Conch (Mutex)"}
         Lock -->|Acquire| LLM["LLM Synthesis"]
-        LLM -->|Act| EventBus
+        LLM -->|Draft| Ego["Integrity (Ego Filter)"]
+        Ego -->|Act| EventBus
     end
 
     subgraph "The Mutable Soul"
         JSON["soul_state.json"]
         Vector["ChromaDB — Subjective Memory"]
         Recall -->|Query| Vector
-        Draft -->|Read State| JSON
+        OODA -->|Read State| JSON
     end
 
     subgraph "CONSEQUENCE PHASE — Physics Engine"
@@ -31,8 +32,6 @@ graph TD
         PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]
         GM -->|Goal Progress| JSON
     end
-
-    Output --> AllDone
 
     subgraph "REFLECTION PHASE — End of Session"
         EndSession["end session"] --> Dream["Dream Phase"]

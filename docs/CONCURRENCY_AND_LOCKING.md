@@ -25,8 +25,8 @@ The "Lock" you referred to is implemented as `SpeakingLock` in `core/heartbeat.p
     2.  **Context Consistency**: Ensures that when an agent speaks, the conversation state is stable (no one else is changing the topic mid-generation).
 *   **Mechanism**:
     *   **Acquisition**: An agent attempts to acquire the lock in the `Decide` phase.
-    *   **TTL (Time-To-Live)**: The lock has a 60-second hardware expiry. If an agent "dies" or the LLM hangs while holding the lock, the `Heartbeat` forcibly revokes it to prevent a deadlock.
-    *   **Renewal**: Agents can renew the lock if their thought process takes longer than expected, up to 2x the TTL.
+    *   **TTL (Time-To-Live)**: The lock has a **180-second (3 minute)** hardware expiry. If an agent "dies" or the LLM hangs while holding the lock, the `Heartbeat` forcibly revokes it to prevent a deadlock.
+    *   **Renewal**: Agents can renew the lock if their thought process takes longer than expected, up to **4x the TTL** (with original acquisition tracking).
 
 ---
 
@@ -38,8 +38,8 @@ The following issues were identified and resolved in the v2.0 development cycle 
 **Status**: RESOLVED (Implemented in `core/ooda.py`)
 
 *   **The Issue**: The OODA loop correctly gated itself when a `WORLD_EVENT` occurred, but it previously failed to gate itself when an `AGENT_SPEAK` event occurred, leading to reactions before trust was updated.
-*   **The Fix**: `OODALoop` now explicitly triggers `_waiting_for_physics = True` upon detecting `AGENT_SPEAK` from peers. It waits for `PHYSICS_COMPLETE` or `AGENT_STATUS` (RELATIONSHIP_UPDATE) before proceeding to the `Decide` phase.
-*   *Reference*: `core/ooda.py` lines 84-90 (Gating) and 230-242 (Cycle Wait).
+*   **The Fix**: `OODALoop` now explicitly triggers `_waiting_for_physics = True` upon detecting `AGENT_SPEAK` from peers. It waits for `PHYSICS_COMPLETE` or `AGENT_STATUS` (RELATIONSHIP_UPDATE) before proceeding to the `Decide` phase. It includes a **120-second safety timeout** to prevent indefinite hangs in case of worker failure.
+*   *Reference*: `core/ooda.py` lines 84-90 (Gating) and 230-234 (Safety Timeout).
 
 ### [FIXED] Bug B: The Bottleneck of Memory
 **Status**: RESOLVED (Implemented in `core/ooda.py`)
