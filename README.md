@@ -107,7 +107,7 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 ```bash
 # Clone
 git clone https://github.com/hardikrawat/IronCouncil.git
-cd IronCouncil
+cd Iron-Council-v2.0
 
 # Virtual environment
 python -m venv venv
@@ -115,6 +115,7 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install Python dependencies
 pip install -r requirements.txt
+pip install -e .  # Installs the 'iron-council' command in editable mode
 
 # Configure environment
 cp .env.example .env
@@ -187,7 +188,7 @@ The `dev_start.sh` script supports automation flags:
 |---------|--------|
 | *Type normally* | Address the council — all agents respond |
 | `end session` | Trigger the Dream Phase — agents reflect and consolidate memory |
-| `iron-council` | Start the production server |
+| `iron-council` | Start the production server (Must be run from project root) |
 | `iron-council setup` | Run the setup wizard |
 | `iron-council reset` | Factory reset via CLI |
 | `./dev_start.sh --kill` | Clean start (Dev Mode) |
@@ -326,7 +327,7 @@ The pipeline generates two distinct reports to ensure full visibility across pha
 ## Project Structure
 
 ```
-IronCouncil/
+Iron-Council-v2.0/
 ├── agents/                      # Persistent agent soul states
 ├── assets/                      # Test reports and generated assets (Gitignored)
 │   ├── report_fast.html        # Mechanical/Parallel test results
