@@ -40,21 +40,23 @@ graph TD
     State -->|Stream| UI[React Frontend]
 ```
 
-## The Concept
+## The Cognitive Architecture
 
-Unlike traditional multi-agent systems, the **Iron Council** simulates political dynamics through a cognitive architecture where agents **evolve beliefs**, **pursue goals**, and **dream biased memories**:
+Unlike traditional multi-agent systems, the **Iron Council** simulates political dynamics through a sophisticated cognitive architecture where agents **evolve beliefs**, **pursue goals**, and **rewrite their own source code**:
 
 - **BDI Architecture**: Each agent has Beliefs (relationships with trust scores), Desires (prioritized goals with progress tracking), and Intentions (generated via LLM at runtime).
 
-- **Autonomous OODA Loops**: Each agent runs an independent Observe-Orient-Decide-Act cycle, choosing *when* and *whether* to speak — no fixed turn order.
+- **Bicameral Mind (Private vs. Public)**: Agents possess a "Hidden Self". They rigorously separate `<internal_monologue>` (strategy/true feelings) from `<public_speech>` (diplomacy/lies). The UI renders their hidden thoughts for the observer, revealing the gap between their true intent and their spoken words.
 
-- **Physics of Consequence**: A real-time "Gamemaster" engine listens to the Event Bus and applies deterministic numerical updates — stats shift, goals advance, and trust between agents rises or falls.
+- **Semantic Social Physics**: A "Gamemaster" LLM analyzes the **semantic weight** of every interaction. It doesn't just track keywords; it understands sarcasm, veiled threats, and diplomatic insults, applying psychological pressure (Stress/Paranoia updates) based on the subtext of the conversation.
 
-- **Entropy & The Conch**: A heartbeat clock injects tension when the council falls silent, and a mutex lock ("The Conch") prevents chaotic overlapping speech.
+- **Autonomous OODA Loops**: Each agent runs an independent Observe-Orient-Decide-Act cycle, choosing *when* and *whether* to speak based on internal energy and motivation — no fixed turn order.
 
-- **Subjective Memory (Dreaming)**: After sessions, agents "sleep" and write biased diary entries into a vector database. They don't recall chat logs — they recall *feelings*.
+- **Neuroplasticity & State Osmosis**: Agents do not merely summarize logs; they undergo **State Osmosis**. During the Dreaming Phase, agents permanently rewrite their own `soul_state.json` (Core Beliefs, Trust Scores, Hidden Agendas) based on the emotional impact of the session. A betrayal today fundamentally alters the agent's personality tomorrow.
 
-- **The Ego Filter**: A secondary LLM pass validates that every response matches the agent's current emotional state before delivery.
+- **Entropy & The Conch (Concurrency)**: A heartbeat clock injects tension when the council falls silent, and a Mutex-based locking system ("The Conch") prevents "Hallucination Cascades" by forcing agents to compete for the floor.
+
+- **The Ego Filter**: A secondary LLM pass (System 2 Thinking) validates that every response matches the agent's current emotional state before delivery, rejecting hallucinations or out-of-character actions.
 
 ---
 
@@ -71,8 +73,6 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 
 ---
 
-
-
 ### Key Components
 
 | Module | File | Purpose |
@@ -80,10 +80,10 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 | **Event Bus** | `core/event_bus.py` | Central nervous system; Async Pub/Sub for all system events |
 | **Heartbeat** | `core/heartbeat.py` | System clock; manages Entropy (Silence) and the "Conch" (Speaking Lock) |
 | **OODA Loop** | `core/ooda.py` | Agent cognitive loop: Observe → Orient → Decide → Act |
-| **Physics** | `core/physics.py` | Deterministic rules engine; calculates Trust Deltas based on votes/sentiment |
+| **Physics** | `core/physics.py` | Semantic Engine; calculates Trust/Stress Deltas based on LLM analysis |
 | **Listener** | `core/physics_system.py` | Bridge that updates Trust/Stats in real-time based on Event Bus streams |
-| **Dream** | `core/dream.py` | Offline memory consolidation; generates Hidden Agendas from session transcripts |
-| **Agent** | `core/agent.py` | BDI Soul state management and LLM interface |
+| **Dream** | `core/dream.py` | Neuroplasticity; permanently updates Agent Souls based on session emotions |
+| **Agent** | `core/agent.py` | BDI Soul state management and Bicameral Mind (Public/Private split) |
 | **Integrity** | `core/integrity.py` | Ego filter — validates responses match agent's emotional state |
 | **Schema** | `core/schema.py` | Pydantic models — `AgentSoul`, `RelationshipModel`, `Goal`, `DynamicStats` |
 | **LLM** | `core/llm.py` | Universal LLM service — OpenAI, Anthropic, Ollama (local) |
