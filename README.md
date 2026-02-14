@@ -106,7 +106,7 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 
 ```bash
 # Clone
-git clone https://github.com/hardikrawat/IronCouncil.git
+git clone git@github.com:hardikrawat/Iron-Council-v2.0.git
 cd Iron-Council-v2.0
 
 # Virtual environment
