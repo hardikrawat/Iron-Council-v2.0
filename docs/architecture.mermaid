@@ -2,14 +2,15 @@
 %% BDI Cognitive Architecture with Separation of Powers
 
 graph TD
-    User["User / Chairman"] -->|Input| Loop["Turn Loop"]
+    User["User / Chairman"] -->|Input| EventBus["Event Bus (Async Pub/Sub)"]
+    Heartbeat["Heartbeat / Clock"] -->|Tick| EventBus
 
-    subgraph "ACTION PHASE — Sequential Agent Processing"
-        Loop -->|For Each Agent| Recall["Recall: Query ChromaDB"]
-        Recall --> Draft["Draft Response via LLM"]
-        Draft --> Ego["Integrity Filter"]
-        Ego -->|Reject| Draft
-        Ego -->|Approve| Output["Final Response"]
+    subgraph "THE HIVE MIND — Async OODA Loops"
+        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]
+        OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]
+        OODA -->|Decide| Lock{"The Conch (Mutex)"}
+        Lock -->|Acquire| LLM["LLM Synthesis"]
+        LLM -->|Act| EventBus
     end
 
     subgraph "The Mutable Soul"
@@ -20,14 +21,15 @@ graph TD
     end
 
     subgraph "CONSEQUENCE PHASE — Physics Engine"
-        Output -->|Trigger| PhysicsUA["calculate_impact — User-Agent ONLY"]
+        EventBus -->|AGENT_SPEAK| PhysicsSys["Physics System (Listener)"]
+        PhysicsSys -->|calculate_impact| PhysicsUA["World Impact"]
         PhysicsUA -->|Stats + Goals| JSON
-        PhysicsUA -.->|"NO relationships here"| PhysicsUA
+        
+        PhysicsSys -->|calculate_reaction| PhysicsAA["Relationship Update"]
+        PhysicsAA -->|Trust Deltas| JSON
 
-        AllDone["All Agents Finished"] --> Reconcile["reconcile_turn — Agent-Agent ONLY"]
-        Reconcile -->|Semantic Alignment| LLM_R["LLM: Sarcasm-Aware Analysis"]
-        LLM_R -->|Trust Delta Matrix| Reconcile
-        Reconcile -->|Vote Detection + Penalties| JSON
+        PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]
+        GM -->|Goal Progress| JSON
     end
 
     Output --> AllDone
@@ -49,7 +51,7 @@ graph TD
         UI --> Stats["Agent Stats Sidebar"]
     end
 
-    Loop -.->|WebSocket| Server
+    EventBus <-->|WebSocket| Server
 
     style PhysicsUA fill:#e6f3ff,stroke:#1a73e8
     style Reconcile fill:#fff3e0,stroke:#e65100

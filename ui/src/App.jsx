@@ -448,7 +448,7 @@ function App() {
 
                             {/* Dream Mode Indicator in Main Chat */}
                             {isDreaming && (
-                                <div className="p-4 bg-amber-50 border-2 border-amber-700 text-center shadow-sharp my-4">
+                                <div className="p-4 bg-amber-50 border-2 border-amber-700 text-center shadow-sharp my-4 dream-banner">
                                     {drainStatus && drainStatus.phase === 'DRAINING' ? (
                                         <>
                                             <div className="text-amber-900 font-bold text-sm tracking-widest uppercase mb-2 font-mono">

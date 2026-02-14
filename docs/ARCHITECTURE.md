@@ -43,8 +43,8 @@ Each agent runs an infinite `Observe-Orient-Decide-Act` loop (`core/ooda.py`).
 
 ### 3. The Heartbeat & Entropy
 The `Heartbeat` (`core/heartbeat.py`) manages the simulation's tempo.
-- **The Conch**: A mutex lock that prevents chaotic overlapping speech. Agents must acquire the Conch to speak.
 - **Entropy (Silence)**: If no one speaks for 45s, `Global Tension` rises, forcing agents to react to the silence.
+- **Conch TTL**: The lock has a 180-second TTL to ensure agents have enough time for complex generations while preventing deadlocks.
 
 ### 4. The Physics Engine
 The "Law of Consequences" (`core/physics.py` & `core/physics_system.py`).

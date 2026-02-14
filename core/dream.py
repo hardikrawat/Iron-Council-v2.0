@@ -9,128 +9,160 @@ logger = logging.getLogger(__name__)
 async def dream_phase(agent, raw_chat_log: List, trust_deltas: Optional[Dict[str, int]] = None) -> str:
     """
     Synthesizes the chat log into a subjective diary entry, effectively 'dreaming'.
-    
-    STAT OSMOSIS:
-    It generates a JSON response containing:
-    1. The dream narrative (Subjective Memory)
-    2. Stat updates (Confidence, Paranoia, etc.)
-    3. Relationship updates (Trust deltas + New Labels)
-    
-    Reflects the agent's internal state change back into their Soul.
+    Uses a multi-stage validation and self-correction loop to ensure valid JSON output.
     """
-    system_prompt, user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
+    system_prompt, original_user_message = _prepare_dream_prompts(agent, raw_chat_log, trust_deltas)
+    user_message = original_user_message
     
     if agent.event_bus:
         from core.event_bus import EventType
-        # Signal that dreaming has started (this might trigger UI effects)
-        agent.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": agent.agent_name, "step": "DREAM_SYNTHESIS"})
+        agent.event_bus.publish_threadsafe(EventType.LLM_ACTIVITY, {"agent": agent.id, "step": "DREAM_SYNTHESIS"})
 
-    logger.info(f"[DREAM] Synthesizing dream for {agent.agent_name}...")
+    logger.info(f"[DREAM] Synthesizing dream for {agent.display_name}...")
     
-    # 1. Generate Dream (Wait for full JSON)
-    try:
-        response_text = await asyncio.to_thread(
-            agent.llm.generate_response,
-            model_name=agent.soul.base_model,
-            system_prompt=system_prompt,
-            user_message=user_message
-        )
-    except Exception as e:
-        logger.error(f"[DREAM] LLM generation failed: {e}")
-        return "I sleep without dreams."
+    max_retries = 3
+    last_error = ""
+    last_response = ""
+    
+    for attempt in range(max_retries):
+        # Apply feedback if this is a retry
+        current_user_message = user_message
+        if attempt > 0:
+            current_user_message = (
+                f"{original_user_message}\n\n"
+                f"### FEEDBACK ON PREVIOUS ATTEMPT ###\n"
+                f"Your previous output was NOT valid JSON.\n"
+                f"Error: {last_error}\n"
+                f"Please fix the JSON structure, ensuring all quotes are closed, commas are correct, "
+                f"and numbers do not have illegal symbols like '+'.\n"
+                f"Output ONLY the fixed JSON object."
+            )
 
-    # 2. Parse & Repair JSON
-    try:
-        # STRIP CLEANING: Remove inline comments before attempting to parse
-        # This fixes issues where local models include the comments from the prompt in the output
-        cleaned_text = re.sub(r'//.*', '', response_text)
+        try:
+            response_text = await asyncio.to_thread(
+                agent.llm.generate_response,
+                model_name=agent.soul.base_model,
+                system_prompt=system_prompt,
+                user_message=current_user_message
+            )
+            last_response = response_text
+        except Exception as e:
+            logger.error(f"[DREAM] LLM generation failed (Attempt {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return "I sleep without dreams."
+            continue
+
+        # 2. Parse & Repair
+        success, dream_data, error_msg = _intelligent_json_recovery(response_text)
         
-        if "```json" in cleaned_text:
-            cleaned_text = cleaned_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in cleaned_text:
-            cleaned_text = cleaned_text.split("```")[1].split("```")[0].strip()
+        if success:
+            logger.info(f"[DREAM] Successfully obtained dream data for {agent.display_name} on attempt {attempt+1}.")
+            return _apply_dream_consequences(agent, dream_data)
         else:
-            cleaned_text = cleaned_text.strip()
-            # Attempt to find JSON start/end if surrounded by text
-            json_start = cleaned_text.find("{")
-            json_end = cleaned_text.rfind("}")
+            last_error = error_msg
+            logger.warning(f"[DREAM] JSON validation failed for {agent.display_name} (Attempt {attempt+1}/3): {error_msg}")
+
+    # FINAL FAILOVER: Lossy extraction of narrative via regex
+    logger.error(f"[DREAM] Failed to get valid JSON for {agent.display_name} after {max_retries} attempts. Using lossy recovery.")
+    narrative_match = re.search(r'"dream_narrative"\s*:\s*"(.*?)"', last_response, re.DOTALL)
+    if narrative_match:
+        recovered_narrative = narrative_match.group(1).strip()
+        return _apply_dream_consequences(agent, {"dream_narrative": recovered_narrative})
+    
+    # Absolute last resort
+    return "I contemplated the void, but the visions were fragmented and unreadable."
+
+def _intelligent_json_recovery(text: str) -> tuple[bool, dict, str]:
+    """
+    Applies heuristics to find and fix JSON within a potentially messy string.
+    Returns (success, data, error_message).
+    """
+    try:
+        # Stage 1: Basic Extraction (Braces/Markdown)
+        cleaned = text.strip()
+        # Remove inline comments
+        cleaned = re.sub(r'//.*', '', cleaned)
+        
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+        elif "```" in cleaned:
+            parts = cleaned.split("```")
+            if len(parts) >= 3:
+                cleaned = parts[1].strip()
+
+        # Stage 2: Heuristic Repairs
+        # 1. Strip '+' signs before numbers: {"val": +10} -> {"val": 10}
+        cleaned = re.sub(r':\s*\+(\d+)', r': \1', cleaned)
+        
+        # 2. Fix unescaped newlines in values (common failure for local LLMs)
+        # This is tricky; we look for newlines that aren't followed by a key separator or brace
+        # Simple version: replace newlines inside quotes
+        def _fix_newlines(match):
+            return match.group(0).replace('\n', '\\n')
+        cleaned = re.sub(r'"([^"]*)"', _fix_newlines, cleaned, flags=re.DOTALL)
+
+        # Stage 3: Recursive Brace Matching for Extraction
+        # Sometimes LLMs wrap JSON in text: "Here is your JSON: { ... } Hope this helps"
+        if not (cleaned.startswith("{") and cleaned.endswith("}")):
+            json_start = cleaned.find("{")
+            json_end = cleaned.rfind("}")
             if json_start != -1 and json_end != -1:
-                cleaned_text = cleaned_text[json_start:json_end+1]
+                cleaned = cleaned[json_start:json_end+1]
 
-        dream_data = json.loads(cleaned_text)
-    except json.JSONDecodeError:
-        logger.error(f"[DREAM] Failed to parse JSON for {agent.agent_name}. Text: {response_text[:100]}...")
-        # Fallback: Assume the text IS the narrative, no stats.
-        dream_data = {"dream_narrative": response_text}
+        # Stage 4: Parse
+        data = json.loads(cleaned)
+        return True, data, ""
+    except json.JSONDecodeError as e:
+        return False, {}, str(e)
+    except Exception as e:
+        return False, {}, f"Unexpected recovery error: {e}"
 
-    # Extract Data
+def _apply_dream_consequences(agent, dream_data: dict) -> str:
+    """
+    Extracts narrative and applies stat/relationship osmosis.
+    """
     diary_entry = dream_data.get("dream_narrative", "")
     
-    # FIX BUG-2: If diary_entry is still raw JSON (parse fallback used the whole response),
-    # attempt to re-extract the actual narrative from it
-    if diary_entry and diary_entry.strip().startswith("{"):
-        try:
-            nested = json.loads(diary_entry)
-            diary_entry = nested.get("dream_narrative", diary_entry)
-        except (json.JSONDecodeError, TypeError):
-            # Last resort: strip everything that looks like JSON structure
-            import re as _re
-            narrative_match = _re.search(r'"dream_narrative"\s*:\s*"(.*?)"', diary_entry, _re.DOTALL)
-            if narrative_match:
-                diary_entry = narrative_match.group(1)
+    # Robust re-extraction if diary_entry is nested for some reason
+    if isinstance(diary_entry, dict):
+        diary_entry = diary_entry.get("dream_narrative", str(diary_entry))
     
     if not diary_entry:
-         diary_entry = "I contemplated the void." # Safety fallback
+        diary_entry = "I contemplated the void."
 
+    # 1. Stats
     stat_updates = dream_data.get("stat_updates", {})
+    if stat_updates:
+        logger.info(f"[DREAM] Applying stat osmosis for {agent.display_name}: {stat_updates}")
+        for stat, delta in stat_updates.items():
+            try:
+                # Basic cleaning of delta (LLM might send string "+10" despite repair attempt)
+                if isinstance(delta, str):
+                    delta = int(delta.replace('+', ''))
+                agent.soul.update_stat(stat, int(delta))
+            except Exception as e:
+                logger.warning(f"Failed to update stat {stat}: {e}")
+
+    # 2. Relationships
     rel_updates = dream_data.get("relationship_updates", {})
+    if rel_updates:
+        logger.info(f"[DREAM] Applying relationship osmosis for {agent.display_name}: {list(rel_updates.keys())}")
+        for target_name, data in rel_updates.items():
+            try:
+                delta = int(str(data.get("trust_delta", 0)).replace('+', ''))
+                summary = data.get("summary", "")
+                hidden_agenda = data.get("hidden_agenda", None)
+                if delta != 0 or summary or hidden_agenda:
+                    agent.soul.update_relationship(target_name, delta, summary, hidden_agenda)
+            except Exception as e:
+                logger.warning(f"Failed to update relationship with {target_name}: {e}")
 
-    # 3. Apply Stat Osmosis (State Updates)
-    try:
-        if stat_updates:
-            logger.info(f"[DREAM] Applying stat osmosis for {agent.agent_name}: {stat_updates}")
-            for stat, delta in stat_updates.items():
-                try:
-                    # Map JSON keys to Soul keys if needed, but schema matches mostly
-                    # 'loyalty_to_chairman_change' vs 'loyalty_to_chairman'
-                    # The prompt asks for 'loyalty_to_chairman'
-                    agent.soul.update_stat(stat, int(delta))
-                except Exception as e:
-                    logger.warning(f"Failed to update stat {stat}: {e}")
-
-        if rel_updates:
-            logger.info(f"[DREAM] Applying relationship osmosis for {agent.agent_name}: {list(rel_updates.keys())}")
-            for target_name, data in rel_updates.items():
-                try:
-                    delta = int(data.get("trust_delta", 0))
-                    summary = data.get("new_summary", "")
-                    # Only update if there's a change
-                    if delta != 0 or summary:
-                        agent.soul.update_relationship(target_name, delta, summary)
-                        # Also clear old agendas if trust improved significantly?
-                        # This logic replaces 'review_agendas'
-                        if delta > 10 and agent.soul.relationships[target_name].hidden_agenda:
-                             agent.soul.relationships[target_name].hidden_agenda = None
-                             logger.info(f"[DREAM] Cleared hostile agenda against {target_name}")
-
-                except Exception as e:
-                    logger.warning(f"Failed to update relationship with {target_name}: {e}")
-
-        # Persist to Disk
-        agent.save_state()
-
-        # Update interaction summaries (Legacy/Fallback)
-        update_interaction_summaries(agent, diary_entry)
-
-    except Exception as e:
-        logger.error(f"[DREAM] Error applying dream consequences: {e}")
-
-    # 4. Save to Memory (For Morning Reflection)
-    try:
-        await asyncio.to_thread(_save_dream_memory, agent, diary_entry)
-    except Exception as e:
-        logger.error(f"[DREAM] Failed to save memory: {e}")
-
+    # 3. Store and Persist
+    agent.save_state()
+    update_interaction_summaries(agent, diary_entry)
+    
+    asyncio.create_task(asyncio.to_thread(_save_dream_memory, agent, diary_entry))
+    
     return diary_entry
 
 
@@ -193,7 +225,8 @@ def _prepare_dream_prompts(agent, raw_chat_log: List, trust_deltas: Optional[Dic
         "TASK: Analyze the session and reflect on your emotional state.\n"
         "1. WRITE A DIARY ENTRY: Pure, emotional prose. No headers.\n"
         "2. DETERMINE STAT CHANGES: How did this session affect your Confidence, Paranoia, Loyalty, and Energy?\n"
-        "3. UPDATE RELATIONSHIPS: Did your trust in anyone change? Do you have a new label for them?\n\n"
+        "3. UPDATE RELATIONSHIPS: Did your trust in anyone change? Do you have a new label for them?\n"
+        "   - If trust in a peer has dropped below -40 or dropped by >10 this session, define or update your 'hidden_agenda' for them.\n\n"
         "OUTPUT FORMAT: You must output a valid JSON object. Do NOT output markdown blocks.\n"
         "{\n"
         '  "dream_narrative": "Today was difficult. Midas is hiding something...",\n'
@@ -207,7 +240,8 @@ def _prepare_dream_prompts(agent, raw_chat_log: List, trust_deltas: Optional[Dic
         '  "relationship_updates": {\n'
         '    "Agent Name": {\n'
         '      "trust_delta": -15,\n'
-        '      "new_summary": "Suspicious of their motives"\n'
+        '      "summary": "Suspicious of their motives",\n'
+        '      "hidden_agenda": "Monitor their communications for signs of betrayal"\n'
         '    }\n'
         '  }\n'
         "}"
@@ -219,7 +253,7 @@ def _prepare_dream_prompts(agent, raw_chat_log: List, trust_deltas: Optional[Dic
 
 def update_interaction_summaries(agent, session_summary: str):
     """Legacy helper: used as fallback or for secondary summary updates."""
-    # This logic is mostly superseded by the JSON 'new_summary' but kept for robustness
+    # This logic is mostly superseded by the JSON 'summary' but kept for robustness
     pass 
 
 

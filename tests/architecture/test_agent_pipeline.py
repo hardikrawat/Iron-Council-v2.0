@@ -189,3 +189,73 @@ class TestBDIStateInfluence:
             assert_keyword_present(result["public_text"], suspicion_keywords, min_matches=1)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_hidden_text_labels_not_xml(self, event_bus):
+        """
+        Ensures that rejected drafts show the [INTERNAL MONOLOGUE] label 
+        instead of any string containing <internal_monologue>.
+        """
+        tmpdir = tempfile.mkdtemp()
+        agent_dir = os.path.join(tmpdir, "general_ares")
+        os.makedirs(agent_dir)
+        
+        # High paranoia ensures Ego rejection
+        soul = SoulFactory.ares(confidence=10, paranoia=100)
+        with open(os.path.join(agent_dir, "soul_state.json"), "w") as f:
+            json.dump(soul.model_dump(), f, indent=4)
+            
+        try:
+            original_join = os.path.join
+            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
+                # Mock Integrity to return a rejection
+                with patch("core.integrity.IntegrityMonitor.check_integrity") as mock_check:
+                    mock_check.return_value = {
+                        "approved": False, 
+                        "critique": "Draft is too aggressive.",
+                        "rewrite_suggestion": "Be more diplomatic."
+                    }
+                    
+                    agent = IronAgent("general_ares", event_bus)
+                    result = agent.speak("Discuss the truce.", "Context")
+                    
+                    hidden = result.get("hidden_text", "")
+                    # Ensure the new label is present
+                    assert "[INTERNAL MONOLOGUE]:" in hidden
+                    # Ensure the leaky tag-like label is ABSENT
+                    assert "<internal_monologue>:" not in hidden
+                    # Ensure no raw tags leaked
+                    assert "<internal_monologue>" not in hidden
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_strip_html_tags(self):
+        """
+        Ensures that common HTML tags like <p> and </p> as well as structural tags like <public_speech>
+        are stripped from the final public text even if extractions fail.
+        """
+        from utils.formatting import clean_agent_response
+        dirty_response = "Hello council members.</p> <p>We must act.<public_speech> This is a test."
+        clean_response = clean_agent_response(dirty_response, "agent_name")
+        
+        assert "</p>" not in clean_response
+        assert "<p>" not in clean_response
+        assert "<public_speech>" not in clean_response
+        assert "Hello council members. We must act. This is a test." in clean_response
+
+    def test_dynamic_model_override(self):
+        """
+        Verifies that IronAgent correctly overrides soul_state model with environment variables.
+        """
+        from core.agent import IronAgent
+        import os
+        
+        # Consistent name with existing folders
+        agent_name = "general_ares"
+        os.environ["GENERAL_ARES_MODEL"] = "test-dynamic-model"
+        
+        try:
+            agent = IronAgent(agent_name)
+            assert agent.soul.base_model == "test-dynamic-model"
+        finally:
+            if "GENERAL_ARES_MODEL" in os.environ:
+                del os.environ["GENERAL_ARES_MODEL"]

@@ -224,7 +224,7 @@ alliance. The Chairman seems receptive. I must press harder next session.
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
 | `HEARTBEAT_TICK_RATE` | Main loop frequency (seconds) | `2.0` |
 | `SILENCE_THRESHOLD` | Seconds before agents feel "Entropy/Anxiety" | `45` |
-| `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `60` |
+| `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `180` |
 
 ### Agent Soul State
 

@@ -262,7 +262,7 @@ async def bridge_agent_status(payload: dict):
         if agent:
             graph_payload = {
                 "type": "relationship_update",
-                "agent_id": agent.agent_name,
+                "agent_id": agent.id,
                 "relationships": agent.soul.get_serializable_relationships()
             }
             await manager.broadcast(graph_payload)
@@ -496,35 +496,52 @@ async def _handle_end_session():
         "phase": "DRAINING"
     })
 
-    # 2. Pause OODA loops and heartbeat immediately
+    # 2. Pause OODA loops and heartbeat immediately to prevent NEW cycles
     for loop in active_loops:
         loop._running = False
     heartbeat.stop()
-    logger.info("OODA loops and heartbeat paused for transition.")
+    logger.info("OODA loops and heartbeat paused for transition. Waiting for in-flight cycles...")
 
-    # 2.6 FIX: Broadcast DREAMING status to UI for each agent immediately
-    for agent in simulation.agents:
-        await event_bus.publish(EventType.AGENT_STATUS, {
-            "agent": agent.agent_name,
-            "status": "DREAMING",
-            "phase": "",
-            "details": "Writing in Dream Diary..."
-        })
-
-    # 3. Flush the PhysicsSystem buffer (Narrative Adjudication)
-    # This can be slow (LLM call), so we do it after the UI is notified.
+    # 3. Flush the PhysicsSystem buffer (Narrative Adjudication) + Pending Reactions
+    # This must happen before we start the dream phase so all events are processed.
     global physics_system
     if physics_system:
-        logger.info("Flushing PhysicsSystem pipeline...")
-        await physics_system.flush_gamemaster_loop()
+        logger.info("Flushing PhysicsSystem pipeline and pending tasks...")
+        await physics_system.flush_all()
 
-    # 2.1 FIX: Release conch during dream phase to clear UI "Channel Locked" banner
+    # 4. Drain in-flight OODA cycles concurrently BEFORE starting dream phase
+    if active_loops:
+        logger.info(f"Draining {len(active_loops)} OODA loops concurrently...")
+        
+        async def drain_agent(loop):
+            drained = await loop.wait_for_drain(timeout=30.0)
+            if not drained:
+                loop._drain_gate = True
+                logger.warning(f"Active drain gate for {loop.agent.soul.name} due to timeout.")
+            # Update local list isn't thread-safe easily, we'll broadcast a fresh snapshot instead
+            return loop.agent.agent_name
+
+        # Run all drains in parallel
+        await asyncio.gather(*(drain_agent(l) for l in active_loops))
+        
+        # Broadcast FINAL clear status so UI hides banner even if some timed out
+        await manager.broadcast({
+            "type": "drain_status",
+            "buffered": [],
+            "total": len(active_loops),
+            "phase": "CLEAR"
+        })
+    
+    logger.info("Pipeline fully drained. Synchronizing final state for Dream Phase...")
+
+    # 5. NOW release conch and notify agents are DREAMING
+    # This ensures the "Channel Locked" banner stays up until the agent is actually done speaking.
     if heartbeat.conch.is_locked():
         owner = heartbeat.conch.owner
         heartbeat.conch.release(owner)
-        logger.info(f"[LOCK] Force-released conch held by {owner} for dream phase.")
+        logger.info(f"[LOCK] Synchronized release of conch held by {owner} for dream phase.")
 
-    # Broadcast clear system state immediately
+    # Broadcast clear system state (Open Channel) now that everyone is done
     await manager.broadcast({
         "type": "system_state_update",
         "data": {
@@ -536,33 +553,19 @@ async def _handle_end_session():
             }
         }
     })
+
+    # Update agent statuses to DREAMING ONLY AFTER they have finished their OODA cycles
+    for agent in simulation.agents:
+        await event_bus.publish(EventType.AGENT_STATUS, {
+            "agent": agent.agent_name,
+            "status": "DREAMING",
+            "phase": "",
+            "details": "Writing in Dream Diary..."
+        })
+
+    logger.info("Proceeding to dream synthesis.")
     
-    # 2.5 FIX BUG-3: Drain in-flight cycles before starting dream phase
-    buffered_agents = [loop.agent.agent_name for loop in active_loops if loop._in_cycle]
-    if buffered_agents:
-        logger.info(f"Draining {len(buffered_agents)} in-flight OODA cycles: {buffered_agents}")
-        
-        for loop in active_loops:
-            # FIX BUG-A: Increased timeout for local models (30s)
-            drained = await loop.wait_for_drain(timeout=30.0)
-            
-            # FIX BUG-C: Activate drain gate if timeout occurred to suppress late broadcasts
-            if not drained:
-                loop._drain_gate = True
-                logger.warning(f"Active drain gate for {loop.agent.soul.name} due to timeout.")
-            
-            # Update drain status as each completes
-            buffered_agents = [l.agent.agent_name for l in active_loops if l._in_cycle]
-            await manager.broadcast({
-                "type": "drain_status",
-                "buffered": buffered_agents,
-                "total": len(active_loops),
-                "phase": "DRAINING" if buffered_agents else "CLEAR"
-            })
-    
-    logger.info("Pipeline drained. Proceeding to dream phase.")
-    
-    # 3. Compute trust deltas from session start
+    # 6. Compute trust deltas from session start
     trust_delta_map = {}  # {agent_name: {other_soul_name: delta}}
     for agent in simulation.agents:
         agent_deltas = {}
@@ -576,7 +579,7 @@ async def _handle_end_session():
     
     logger.info(f"Trust deltas computed: { {a: d for a, d in trust_delta_map.items() if d} }")
     
-    # 4. Stream dream phase for each agent
+    # 7. Stream dream phase for each agent
     for agent in simulation.agents:
         agent_deltas = trust_delta_map.get(agent.agent_name, {})
         
@@ -598,7 +601,7 @@ async def _handle_end_session():
                     "content": chunk
                 })
         except Exception as e:
-            logger.error(f"Error streaming dream for {agent.soul.name}: {e}")
+            logger.error(f"Error streaming dream for {agent.display_name}: {e}")
             full_dream = f"[Dream failed: {e}]"
         
         # Send stream_end
@@ -607,43 +610,43 @@ async def _handle_end_session():
             "agent": agent.agent_name,
             "full_data": {
                 "entry": full_dream,
-                "agent_name": agent.soul.name  # Redundant but helpful for some handlers
+                "agent_name": agent.display_name  # Redundant but helpful for some handlers
             }
         })
         
-        # 5. Review agendas for this agent
+        # 8. Review agendas for this agent
         try:
             await review_agendas(agent, agent_deltas)
         except Exception as e:
-            logger.error(f"Error reviewing agendas for {agent.soul.name}: {e}")
+            logger.error(f"Error reviewing agendas for {agent.display_name}: {e}")
         
-        # 6. Save agent state
+        # 9. Save agent state
         agent.save_state()
-        logger.info(f"Dream complete for {agent.soul.name}")
+        logger.info(f"Dream complete for {agent.display_name}")
 
         # FIX: Broadcast the new "Osmosed" stats to the UI immediately
         await manager.broadcast({
             "type": "stat_update",
-            "agent_id": agent.agent_name,
+            "agent_id": agent.id,
             "stats": agent.soul.dynamic_stats.model_dump(),
             "goals": [g.model_dump() for g in agent.soul.goals]
         })
         
         await manager.broadcast({
             "type": "relationship_update",
-            "agent_id": agent.agent_name,
+            "agent_id": agent.id,
             "relationships": agent.soul.get_serializable_relationships()
         })
-        logger.info(f"[WS_BRIDGE] Synced post-dream stats for {agent.soul.name}")
+        logger.info(f"[WS_BRIDGE] Synced post-dream stats for {agent.display_name}")
     
-    # 7. Re-snapshot trust baselines for next session
+    # 10. Re-snapshot trust baselines for next session
     simulation.snapshot_trust()
     
-    # 8. Clear session log for next session
+    # 11. Clear session log for next session
     simulation.session_log.clear()
     simulation.save_history()
     
-    # 9. Resume OODA loops and heartbeat
+    # 12. Resume OODA loops and heartbeat
     # FIX BUG-01/05: Clear stale event buffers and processed-event trackers
     for loop in active_loops:
         loop.memory = EventBuffer()

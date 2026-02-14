@@ -10,9 +10,9 @@ def clean_agent_response(text: str, agent_name: str = None) -> str:
 
     text = text.strip()
 
-    # 0. Strip XML straitjacket tags that may have survived extraction
-    # FIX BUG-1: These leak when agent.py fallback paths don't match cleanly
-    text = re.sub(r'</?(?:public_speech|internal_monologue)>', '', text, flags=re.IGNORECASE)
+    # 0. Strip any surviving XML/HTML tags (e.g., <p>, </public_speech>, etc.)
+    # Robustified: catches any tag structure </?tagName ... > with support for underscores
+    text = re.sub(r'</?(?:[a-z][a-z0-9_]*)\b[^>]*>', '', text, flags=re.IGNORECASE)
     text = text.strip()
 
     # 1. Strip markdown code blocks (often used by models for 'clean' output)

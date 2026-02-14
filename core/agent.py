@@ -18,10 +18,28 @@ class IronAgent:
         self.state_path = os.path.join("agents", agent_name, "soul_state.json")
         self.soul = self._load_soul()
         
+        # FIX: Check for environment variable override for the model (e.g., GENERAL_ARES_MODEL)
+        # This allows the model to be dynamic based on reconfiguration via setup_env.py
+        env_model_key = f"{agent_name.upper().replace(' ', '_')}_MODEL"
+        env_model = os.getenv(env_model_key)
+        if env_model:
+            logger.info(f"[AGENT] Overriding {agent_name} model from soul_state ({self.soul.base_model}) to ENV ({env_model})")
+            self.soul.base_model = env_model
+
         # Initialize services
         self.llm = LLMService(event_bus=event_bus)
         self.integrity = IntegrityMonitor(self.llm, event_bus=event_bus)
         self.memory = SubjectiveMemory(event_bus=event_bus)
+
+    @property
+    def id(self) -> str:
+        """The canonical snake_case unique identifier for this agent."""
+        return self.agent_name
+
+    @property
+    def display_name(self) -> str:
+        """The human-readable name defined in the soul."""
+        return self.soul.name
 
     def _load_soul(self) -> AgentSoul:
         if not os.path.exists(self.state_path):
@@ -104,25 +122,33 @@ class IronAgent:
         # Relationship Context — 5-tier granular mapping
         for agent_name, rel in soul.relationships.items():
             score = rel.trust_score
+            summary_part = f" (Summary: {rel.last_interaction_summary})" if rel.last_interaction_summary else ""
             if score < -60:
-                prompt_parts.append(f"You despise {agent_name}. You would sabotage them.")
+                prompt_parts.append(f"You despise {agent_name}{summary_part}. You would sabotage them.")
             elif score < -20:
-                prompt_parts.append(f"You distrust {agent_name}. You suspect their motives.")
+                prompt_parts.append(f"You distrust {agent_name}{summary_part}. You suspect their motives.")
             elif score > 60:
-                prompt_parts.append(f"You deeply trust {agent_name}. You would ally with them.")
+                prompt_parts.append(f"You deeply trust {agent_name}{summary_part}. You would ally with them.")
             elif score > 20:
-                prompt_parts.append(f"You trust {agent_name} and value their input.")
-            # Neutral (-20 to 20) — say nothing, let the agent decide
+                prompt_parts.append(f"You trust {agent_name}{summary_part} and value their input.")
+            elif summary_part:
+                prompt_parts.append(f"Regarding {agent_name}:{summary_part}")
             
             # Inject hidden agendas if they exist
             if rel.hidden_agenda:
                 prompt_parts.append(f"Regarding {agent_name}, your hidden agenda: {rel.hidden_agenda}")
         
-        # Goals — inject active goals into the prompt
+        # Goals — inject active and recently completed goals into the prompt
         active_goals = [g for g in soul.goals if g.active]
         if active_goals:
             goal_strs = [f"{g.description} ({g.priority}, {g.progress}% complete)" for g in active_goals]
-            prompt_parts.append(f"Your current goals: {'; '.join(goal_strs)}. Act in ways that advance them.")
+            prompt_parts.append(f"Your current active goals: {'; '.join(goal_strs)}. Act in ways that advance them.")
+        
+        completed_goals = [g for g in soul.goals if not g.active and g.progress >= 100]
+        if completed_goals:
+            # Only show top 3 mostly recent/relevant completed goals to save tokens
+            comp_strs = [f"{g.description}" for g in completed_goals[-3:]]
+            prompt_parts.append(f"Recently completed goals: {'; '.join(comp_strs)}. Maintain the momentum of these victories.")
                 
         # Formatting Rules — CRITICAL for clean UI
         prompt_parts.append("\nFORMATTING RULES:")
@@ -130,6 +156,7 @@ class IronAgent:
         prompt_parts.append("- DO NOT prepend your name (e.g., 'General Ares:') to the response.")
         prompt_parts.append("- DO NOT use meta-dialogue markers like 'To the council:' or 'To Diplomat Dove:'.")
         prompt_parts.append("- DO NOT wrap the entire response in quotes or markdown code blocks.")
+        prompt_parts.append("- DO NOT use HTML tags (e.g., <p>, <div>, <public_speech>) in your spoken dialogue.")
         prompt_parts.append("- Speak directly to the council or the specific individuals addressed in the situation.")
         
         # FIX: Inner Monologue Instruction (XML Straitjacket)
@@ -212,8 +239,13 @@ class IronAgent:
         soul_status = {
             "Identity": f"{self.soul.name} (YOU)",
             "Archetype": self.soul.archetype,
-            "Current Mood": "Paranoid" if self.soul.dynamic_stats.paranoia > 60 else "Confident", # Simplified for token efficiency
-            "Energy": self.soul.dynamic_stats.energy,
+            "Stats": {
+                "Confidence": self.soul.dynamic_stats.confidence,
+                "Paranoia": self.soul.dynamic_stats.paranoia,
+                "Loyalty": self.soul.dynamic_stats.loyalty_to_chairman,
+                "Stress": self.soul.dynamic_stats.stress_level,
+                "Energy": self.soul.dynamic_stats.energy
+            },
             "Active Goals": [g.description for g in self.soul.goals if g.active]
         }
         user_message += f"\n\n[CURRENT SOUL STATUS]\n{json.dumps(soul_status, indent=2)}"
@@ -236,7 +268,8 @@ class IronAgent:
         public_draft = raw_response
         
         # 2. Extract Thought (Internal Monologue)
-        thought_match = re.search(r'<internal_monologue>(.*?)</internal_monologue>', raw_response, re.DOTALL | re.IGNORECASE)
+        # Improved regex: more flexible with whitespace and case
+        thought_match = re.search(r'<(?:internal_monologue|internal monologue)>(.*?)</(?:internal_monologue|internal monologue)>', raw_response, re.DOTALL | re.IGNORECASE)
         if thought_match:
             thought_text = thought_match.group(1).strip()
 
@@ -248,7 +281,7 @@ class IronAgent:
             # Fallback A: If agent forgot speech tags but used monologue tags
             # Assume everything NOT in monologue tags is speech
             if thought_match:
-                cleaner = re.sub(r'<internal_monologue>.*?</internal_monologue>', '', raw_response, flags=re.DOTALL | re.IGNORECASE)
+                cleaner = re.sub(r'<(?:internal_monologue|internal monologue)>.*?</(?:internal_monologue|internal monologue)>', '', raw_response, flags=re.DOTALL | re.IGNORECASE)
                 public_draft = cleaner.strip()
             
             # Fallback B: If agent used OLD format (THOUGHT) despite instructions (Legacy Drift)
@@ -272,7 +305,8 @@ class IronAgent:
         # Step D: Rewrite
         critique = check.get("critique", "No critique provided.")
         # If rejected, we show the thought AND the rejected draft in hidden text
-        hidden_thought = f"<internal_monologue>: {thought_text}\n[REJECTED DRAFT]: {public_draft}\n[CRITIQUE]: {critique}"
+        # FIX: Use human-friendly labels instead of XML-like tags to prevent leakage
+        hidden_thought = f"[INTERNAL MONOLOGUE]: {thought_text}\n[REJECTED DRAFT]: {public_draft}\n[CRITIQUE]: {critique}"
         
         logger.info(f"[AGENT: {self.agent_name}] Ego REJECTED draft. Critique: {critique}")
         
