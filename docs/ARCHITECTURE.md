@@ -1,89 +1,199 @@
-# Iron Council v2.0 Architecture
+# Iron Council v2.0 Architecture (Revised)
 
-## Overview
-Iron Council is an autonomous multi-agent simulation where AI agents ("The Council") govern a fictional state in real-time. The system has evolved from a turn-based terminal application to a real-time, event-driven web application.
+## 1. System Overview
+Iron Council v2.0 is a **real-time, asynchronous, event-driven multi-agent simulation**. Unlike turn-based chatbots, agents operate in parallel execution loops, synchronized by a central heartbeat and a rigorous "Physics Gating" protocol to ensure emotional causality (agents must "feel" an event before they can "react" to it).
 
-## Core Architecture: The Event-Driven Loop
+The system is built on **FastAPI** (WebSockets) for the frontend bridge and a custom **Python EventBus** for internal agent orchestration.
+
+---
+
+## 2. Core Architecture: The Asynchronous Loop
+
+The system does not run in a linear circle. It runs as independent services communicating via the `EventBus`.
 
 ```mermaid
 graph TD
-    User[User / Chairman] -->|Input| EventBus
-    Heartbeat[Heartbeat / Clock] -->|Tick| EventBus
-    
-    subgraph "The Hive Mind"
-        EventBus -->|Broadcast| OODA_Ares[Ares OODA Loop]
-        EventBus -->|Broadcast| OODA_Midas[Midas OODA Loop]
-        EventBus -->|Broadcast| OODA_Dove[Dove OODA Loop]
-        EventBus -->|Broadcast| OODA_Logic[Logic OODA Loop]
+    %% High-Contrast Theme for Light/Dark Mode Compatibility
+    classDef darkNode fill:#333,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef inputNode fill:#2d3436,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef looseNode fill:#2d3436,stroke:#fff,stroke-width:1px,color:#fff,stroke-dasharray: 5 5;
+
+    User["User / Chairman"]:::inputNode -->|Input| EventBus["Event Bus (Async Pub/Sub)"]:::darkNode
+    Heartbeat["Heartbeat / Clock"]:::inputNode -->|Tick| EventBus
+
+    subgraph "THE HIVE MIND — Async OODA Loops"
+        direction TB
+        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::darkNode
+        OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]:::looseNode
+        OODA -->|Decide| Lock{"The Conch (Mutex)"}:::darkNode
+        Lock -->|Acquire| LLM["LLM Synthesis"]:::darkNode
+        LLM -->|Draft| Ego["Integrity (Ego Filter)"]
+        Ego -->|Act| EventBus
+    end
+
+    subgraph "CONSEQUENCE PHASE — Physics Engine"
+        direction TB
+        EventBus -->|AGENT_SPEAK| PhysicsSys["Physics System (Listener)"]:::darkNode
+        PhysicsSys -->|calculate_impact| PhysicsUA["World Impact"]
+        PhysicsUA -->|Stats + Goals| JSON
         
-        OODA_Ares -->|Decide| Lock{The Conch Mutex}
-        OODA_Midas -->|Decide| Lock
-        OODA_Dove -->|Decide| Lock
-        OODA_Logic -->|Decide| Lock
-        
-        Lock -->|Acquired| LLM[LLM Inference]
-        LLM -->|Draft| Integrity[Integrity Gatekeeper]
-        Integrity -->|Act| EventBus
+        PhysicsSys -->|calculate_reaction| PhysicsAA["Relationship Update"]
+        PhysicsAA -->|Trust Deltas| JSON
+
+        PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]:::darkNode
+        GM -->|Goal Progress| JSON
+    end
+
+    subgraph "REFLECTION PHASE — End of Session"
+        direction TB
+        EndSession["end session"]:::inputNode --> Dream["Dream Phase"]
+        Dream -->|Trust Deltas Injected| Diary["Subjective Diary Entry"]
+        Diary -->|Store| Vector
+        Diary --> Agenda["review_agendas — Hidden Agenda Re-evaluation"]:::darkNode
+        Agenda -->|Updated Agendas| JSON
+    end
+
+    subgraph "VISUAL LAYER"
+        Server["FastAPI + WebSocket"]:::darkNode
+        UI["React Frontend"]:::darkNode
+        Server <-->|Real-time Streaming| UI
+        UI --> Graph["Syndicate Graph"]:::looseNode
+        UI --> Thread["Thread View"]:::looseNode
+        UI --> Stats["Agent Stats Sidebar"]:::looseNode
     end
     
-    EventBus -->|AGENT_SPEAK| PhysicsSystem[Physics System]
-    PhysicsSystem -->|Update| State[(Agent Soul State)]
-    PhysicsSystem -->|Update| Transcript[Session Log]
-    
-    State -->|Stream| UI[React Frontend]
+    EventBus <-->|WebSocket| Server
+
+    %% Storage Layer (Moved to bottom to prevent crossing lines)
+    subgraph "The Mutable Soul (Storage)"
+        JSON["soul_state.json"]:::darkNode
+        Vector["ChromaDB — Subjective Memory"]:::darkNode
+        Recall -->|Query| Vector
+        OODA -->|Read State| JSON
+    end
+
+    %% High Contrast Styles (Using Hex for consistency)
+    style PhysicsUA fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff
+    style PhysicsAA fill:#e65100,stroke:#fff,stroke-width:2px,color:#fff
+    style Dream fill:#1b5e20,stroke:#fff,stroke-width:2px,color:#fff
+    style Ego fill:#b71c1c,stroke:#fff,stroke-width:2px,color:#fff
 ```
 
-### 1. The Event Bus
-The central nervous system of the application (`core/event_bus.py`). It decouples components, allowing agents to react to the world without direct dependencies on the source.
-- **WORLD_EVENT**: Inputs from the Chairman (User) or system alerts.
-- **AGENT_SPEAK**: Public statements made by council members.
-- **SYSTEM_TICK**: Regular heartbeat pulses to keep the simulation alive.
 
-### 2. The OODA Loop
-Each agent runs an infinite `Observe-Orient-Decide-Act` loop (`core/ooda.py`).
-- **Observe**: Listens to the Event Bus for recent context.
-- **Orient**: Checks internal state (Energy, Stress, Paranoia).
-- **Decide**: Uses the **Heartbeat Conch** to ensure only one agent speaks at a time.
-- **Act**: Generates a response via LLM, validates it through the **Integrity Gatekeeper (Ego Filter)**, and publishes it back to the bus.
+---
 
-### 2.1 The Integrity Gatekeeper
-The final checkpoint before speech (`core/integrity.py`). It uses a fast LLM pass to ensure an agent's response hasn't "drifted" from their core values or current emotional state (e.g., an arrogant agent should not apologize).
+## 2.1 Core Principle: Subjective Reality ("The 'I' Shift")
 
-### 3. The Heartbeat & Entropy
-The `Heartbeat` (`core/heartbeat.py`) manages the simulation's tempo.
-- **Entropy (Silence)**: If no one speaks for 45s, `Global Tension` rises, forcing agents to react to the silence.
-- **Conch TTL**: The lock has a 180-second TTL to ensure agents have enough time for complex generations while preventing deadlocks.
+In traditional multi-agent systems, agents read a "God View" transcript (e.g., `Ares: Hello. Dove: Hi.`). This causes "Identity Drift" because the model forgets who it is. 
 
-### 4. The Physics Engine
-The "Law of Consequences" (`core/physics.py` & `core/physics_system.py`).
-- **Determinism**: Unlike standard LLM chat, the Physics Engine applies explicit numerical updates to agent states.
-- **User Impact**: When the Chairman speaks, every agent's `Confidence`, `Paranoia`, and `Loyalty` are updated based on the content.
-- **Agent Dynamics**: When an agent speaks, the engine calculates how it affects the trust of *every other agent* listening.
-- **Guardrails**:
-    - **Reaction Spiral Prevention**: Physics updates *only* change internal state. They never trigger an immediate output, preventing infinite loops.
-    - **Transcript Safety**: The Physics System maintains the canonical session log used for dreaming.
+Iron Council v2.0 implements **Subjective Reality**:
+1.  **The Filter:** The Global Event Bus is the "Objective Reality".
+2.  **The Shift:** Before an agent perceives an event, the system rewrites the transcript from their perspective.
+    *   **Objective:** `General Ares: Attack!`
+    *   **Ares Sees:** `YOU: Attack!`
+    *   **Dove Sees:** `General Ares: Attack!`
+3.  **Result:** The LLM is forced into a first-person ego-centric perspective, preventing it from accidentally speaking for other agents or hallucinating identities. This logic is handled in the `OODALoop` before the prompt is constructed.
 
-### 5. Iron Monitor (TUI)
-The `TUIManager` (`server.py`) provides a professional production interface.
-- **Fixed Header**: Uses ANSI escapes to pin branding and live metrics (Tension, Conch, Uptime) at the top.
-- **Scrolling Buffer**: Maps a sub-region of the terminal for real-time protocol logs.
-- **Alternate Buffer**: Redirects output to a secondary screen buffer to keep the user's primary terminal scrollback clean.
+---
 
-## Data Persistence: The Soul
-Agents are persistent entities (`core/schema.py`). Their state is saved to `agents/<name>/soul_state.json` after every interaction.
-- **Core Values**: Immutable beliefs (e.g., "War is necessary").
-- **Dynamic Stats**: Mutable values (0-100) like `Energy`, `Stress`.
-- **Relationships**: A directed graph of trust scores (-100 to 100) between agents.
+## 3. The Central Nervous System (`core/event_bus.py`)
+The application is entirely decoupled. Components do not call each other; they publish events.
 
-## Memory Systems
-The Iron Council uses a dual-memory approach:
-1. **Short-Term Memory**: The `EventBuffer` (`core/ooda.py`) stores the last 50 events for immediate OODA context.
-2. **Subjective Memory (ChromaDB)**: A vector database (`memory/store.py`) where agents store and recall "feelings" and "observations" via semantic search.
+### Key Event Types
+1.  **WORLD_EVENT**: Inputs from the User/Chairman.
+2.  **AGENT_SPEAK**: Public dialogue from an agent.
+3.  **PHYSICS_SYNC / PHYSICS_COMPLETE**: *Critical control signals* that tell agents when the emotional impact of an event has been calculated.
+4.  **SILENCE_WARNING**: Generated by the Heartbeat when entropy rises.
+5.  **SYSTEM_TICK**: The metronome (2.0s interval) keeping loops alive.
 
-## Dreaming
-At the end of a session, agents enter the **Dream Phase** (`core/dream.py`).
-- They review the **Session Transcript**.
-- They analyze their **Trust Deltas** (who helped/hurt them).
-- They write a subjective **Diary Entry**.
-- **Stat Osmosis**: The simulation applies permanent stat updates and relationship shifts based on the "emotional residue" of the dream.
-- They form **Hidden Agendas** against enemies.
+---
+
+## 4. The Agent OODA Loop (`core/ooda.py`)
+Agents are not request-response handlers. They are infinite loops running `Observe-Orient-Decide-Act` cycles.
+
+### 4.1 The Physics Gate (Reaction Gating)
+A critical feature found in `ooda.py` is the **Reaction Gate**.
+* **The Problem:** In async systems, an agent might reply to a message before the "Physics Engine" has calculated how that message hurt their feelings.
+* **The Solution:**
+    1.  When `ooda.py` sees a `WORLD_EVENT` or `AGENT_SPEAK`, it enters a `waiting_for_physics` state.
+    2.  It pauses the agent's ability to speak.
+    3.  It waits for a specific `PHYSICS_COMPLETE` or `RELATIONSHIP_UPDATE` event from the Physics System.
+    4.  Only *after* the stats are updated does the agent proceed to `DECIDE`, ensuring the response reflects the new emotional state.
+
+### 4.2 The Decision Trigger
+Agents use a "Thrifty" decision model. They do not query the LLM every tick.
+* **Triggers:** New World Events, specific Peer Speech (70% probability), or High Tension (Entropy > 50%).
+* **Impulse:** A small (5%) random chance to speak spontaneously.
+
+---
+
+## 5. The Physics System (`core/physics_system.py`)
+The Physics System is a standalone service that acts as the "Law of Consequences." It has two distinct layers:
+
+### Layer 1: Immediate Reaction (The "Hot" Path)
+When an event occurs, the Physics System calculates impacts **in parallel** (using `asyncio.gather`) for all agents to minimize latency.
+* **User Input:** Updates `Confidence`, `Paranoia`, `Loyalty`, `Stress`.
+* **Agent Input:** Updates `Trust` scores between the speaker and *every* listener.
+* **Output:** Updates the `AgentSoul` in memory and emits `AGENT_STATUS` updates to the UI.
+
+### Layer 2: The Gamemaster Loop (The "Cold" Path)
+Defined in `GamemasterPhysics`, this processes the narrative arc.
+* **Buffering:** It collects a buffer of ~3 messages.
+* **Adjudication:** It asks a higher-intelligence LLM to judge if **Goals** (e.g., "Start a War") have advanced or regressed.
+* **Verdict:** It emits `NARRATIVE_VERDICT` events, which serve as the "Ledger of Truth" for the simulation.
+
+---
+
+## 6. Concurrency & The Heartbeat (`core/heartbeat.py`)
+The simulation uses strict locking to prevent chaos.
+
+* **The Conch (Async Mutex):**
+    * Only one agent can speak at a time.
+    * Implemented via `asyncio.Lock` to prevent **TOCTOU** (Time-Of-Check to Time-Of-Use) race conditions where two agents think they grabbed the mic simultaneously.
+    * **TTL (Time To Live):** 180 seconds. If an agent hoards the conch (e.g., LLM hangs), the Heartbeat forcibly revokes it.
+
+* **Entropy (Tension):**
+    * If no activity is detected for 45s, `Global Tension` rises.
+    * High tension triggers paranoia-based responses in agents via the OODA loop.
+
+---
+
+## 7. Data Persistence & Memory (`core/schema.py` & `memory/store.py`)
+
+### The Soul File (`soul_state.json`)
+Persistence is atomic.
+* **Core Values:** Immutable beliefs.
+* **Dynamic Stats:** Mutable (0-100) stats like Energy and Stress.
+* **Relationships:** A Directed Graph of trust.
+* **Goals:** BDI (Belief-Desire-Intention) structures with 0-100% progress bars.
+
+### Memory Systems
+1.  **Short-Term (Context):** The last 50 events in the `EventBuffer` (RAM).
+2.  **Subjective Long-Term (ChromaDB):**
+    * Agents store "Feelings" and "Observations" in a vector database.
+    * Before speaking, they query ChromaDB for context relevant to the current situation.
+
+---
+
+## 8. The Dream Phase (`core/dream.py`)
+The simulation includes a sophisticated shutdown sequence called the **Dream Phase**.
+
+1.  **The Drain:** The server pauses the Heartbeat and waits for all in-flight OODA cycles to complete (`wait_for_drain`).
+2.  **Dreaming:** Agents stream a monologue reviewing the session transcript.
+3.  **Stat Osmosis:** The *emotional residue* of the dream permanently alters their baseline stats for the next session.
+4.  **Agenda Review:** Agents generate "Hidden Agendas" (Secret Goals) against enemies who betrayed them during the session.
+
+---
+
+## 9. Infrastructure (`server.py`)
+
+### The WebSocket Bridge
+Connecting the Python EventBus to the React Frontend:
+* Subscribes to `AGENT_SPEAK`, `AGENT_STATUS`, and `SYSTEM_TICK`.
+* Broadcasts JSON payloads to connected WebSocket clients.
+* Handles "Initial Sync" for late-joining clients.
+
+### TUI Monitor (Terminal User Interface)
+A production-grade CLI dashboard running in a separate thread.
+* Uses ANSI escape codes to render a live status header (Uptime, Tension, Conch Owner).
+* Scrolls logs in a protected viewport below the header.

@@ -2,57 +2,67 @@
 %% BDI Cognitive Architecture with Separation of Powers
 
 graph TD
-    User["User / Chairman"] -->|Input| EventBus["Event Bus (Async Pub/Sub)"]
-    Heartbeat["Heartbeat / Clock"] -->|Tick| EventBus
+    %% High-Contrast Theme for Light/Dark Mode Compatibility
+    classDef darkNode fill:#333,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef inputNode fill:#2d3436,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef looseNode fill:#2d3436,stroke:#fff,stroke-width:1px,color:#fff,stroke-dasharray: 5 5;
+
+    User["User / Chairman"]:::inputNode -->|Input| EventBus["Event Bus (Async Pub/Sub)"]:::darkNode
+    Heartbeat["Heartbeat / Clock"]:::inputNode -->|Tick| EventBus
 
     subgraph "THE HIVE MIND — Async OODA Loops"
-        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]
-        OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]
-        OODA -->|Decide| Lock{"The Conch (Mutex)"}
-        Lock -->|Acquire| LLM["LLM Synthesis"]
+        direction TB
+        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::darkNode
+        OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]:::looseNode
+        OODA -->|Decide| Lock{"The Conch (Mutex)"}:::darkNode
+        Lock -->|Acquire| LLM["LLM Synthesis"]:::darkNode
         LLM -->|Draft| Ego["Integrity (Ego Filter)"]
         Ego -->|Act| EventBus
     end
 
-    subgraph "The Mutable Soul"
-        JSON["soul_state.json"]
-        Vector["ChromaDB — Subjective Memory"]
-        Recall -->|Query| Vector
-        OODA -->|Read State| JSON
-    end
-
     subgraph "CONSEQUENCE PHASE — Physics Engine"
-        EventBus -->|AGENT_SPEAK| PhysicsSys["Physics System (Listener)"]
+        direction TB
+        EventBus -->|AGENT_SPEAK| PhysicsSys["Physics System (Listener)"]:::darkNode
         PhysicsSys -->|calculate_impact| PhysicsUA["World Impact"]
         PhysicsUA -->|Stats + Goals| JSON
         
         PhysicsSys -->|calculate_reaction| PhysicsAA["Relationship Update"]
         PhysicsAA -->|Trust Deltas| JSON
 
-        PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]
+        PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]:::darkNode
         GM -->|Goal Progress| JSON
     end
 
     subgraph "REFLECTION PHASE — End of Session"
-        EndSession["end session"] --> Dream["Dream Phase"]
+        direction TB
+        EndSession["end session"]:::inputNode --> Dream["Dream Phase"]
         Dream -->|Trust Deltas Injected| Diary["Subjective Diary Entry"]
         Diary -->|Store| Vector
-        Diary --> Agenda["review_agendas — Hidden Agenda Re-evaluation"]
+        Diary --> Agenda["review_agendas — Hidden Agenda Re-evaluation"]:::darkNode
         Agenda -->|Updated Agendas| JSON
     end
 
-    subgraph "VISUAL LAYER — Optional"
-        Server["FastAPI + WebSocket — server.py"]
-        UI["React Frontend — localhost:5173"]
+    subgraph "VISUAL LAYER"
+        Server["FastAPI + WebSocket"]:::darkNode
+        UI["React Frontend"]:::darkNode
         Server <-->|Real-time Streaming| UI
-        UI --> Graph["Syndicate Graph — Trust Network"]
-        UI --> Thread["Thread View — Public + Spoiler"]
-        UI --> Stats["Agent Stats Sidebar"]
+        UI --> Graph["Syndicate Graph"]:::looseNode
+        UI --> Thread["Thread View"]:::looseNode
+        UI --> Stats["Agent Stats Sidebar"]:::looseNode
     end
-
+    
     EventBus <-->|WebSocket| Server
 
-    style PhysicsUA fill:#e6f3ff,stroke:#1a73e8
-    style Reconcile fill:#fff3e0,stroke:#e65100
-    style Dream fill:#e8f5e9,stroke:#2e7d32
-    style Ego fill:#fce4ec,stroke:#c62828
+    %% Storage Layer (Moved to bottom to prevent crossing lines)
+    subgraph "The Mutable Soul (Storage)"
+        JSON["soul_state.json"]:::darkNode
+        Vector["ChromaDB — Subjective Memory"]:::darkNode
+        Recall -->|Query| Vector
+        OODA -->|Read State| JSON
+    end
+
+    %% High Contrast Styles (Using Hex for consistency)
+    style PhysicsUA fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff
+    style PhysicsAA fill:#e65100,stroke:#fff,stroke-width:2px,color:#fff
+    style Dream fill:#1b5e20,stroke:#fff,stroke-width:2px,color:#fff
+    style Ego fill:#b71c1c,stroke:#fff,stroke-width:2px,color:#fff

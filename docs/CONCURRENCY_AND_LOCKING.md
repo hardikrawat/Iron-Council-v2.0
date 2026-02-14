@@ -1,49 +1,54 @@
-# Concurrency, Locking, and LLM Usage Analysis
+# Concurrency, Locking, and Gating Protocols
 
-## 1. Concurrency Model: Can Agents use LLM at the same time?
+## 1. The Two-Gate System
 
-**The short answer is: YES, but with strict controls.**
+Iron Council v2.0 uses a dual-gate architecture to manage the flow of information (Input) and speech (Output). This ensures that agents are emotionally consistent (Input Gate) and conversationally orderly (Output Gate).
 
-The system is designed as an asynchronous event-driven architecture (`core/event_bus.py`). Each agent runs as an independent `OODALoop` task.
-
-### Where LLM Usage is Parallel (Concurrent)
-1.  **The Dream Phase**: At the end of a session, all agents generate their diaries and hidden agendas simultaneously. `core/dream.py` does *not* use the central lock.
-2.  **Physics Calculations**: When an event occurs, the `PhysicsSystem` spawns background threads (`asyncio.to_thread`) to calculate impacts and relationship updates using the LLM. This happens concurrently with other agents' `Observe` and `Orient` cycles.
-3.  **Drafting vs. Speaking**: While one agent is *speaking* (sending bytes to the websocket), another agent might be *drafting* a thought or updating its internal state, provided it doesn't need "The Conch" yet.
-
-### Where LLM Usage is Serialized (Locked)
-*   **The Act Phase (Speaking)**: The actual generation of public speech is strictly serialized. An agent MUST acquire "The Conch" (Lock) before it can invoke the LLM to generate a spoken response.
-    *   *Reference*: `core/ooda.py` lines 272 (Acquire) -> 303 (Speak/LLM).
-
-## 2. The Lock System: "The Conch"
-
-The "Lock" you referred to is implemented as `SpeakingLock` in `core/heartbeat.py`.
-
-*   **Type**: Mutex (Mutual Exclusion) using `asyncio.Lock`.
-*   **Purpose**: 
-    1.  **Line-Taking**: Prevents agents from talking over each other.
-    2.  **Context Consistency**: Ensures that when an agent speaks, the conversation state is stable (no one else is changing the topic mid-generation).
-*   **Mechanism**:
-    *   **Acquisition**: An agent attempts to acquire the lock in the `Decide` phase.
-    *   **TTL (Time-To-Live)**: The lock has a **180-second (3 minute)** hardware expiry. If an agent "dies" or the LLM hangs while holding the lock, the `Heartbeat` forcibly revokes it to prevent a deadlock.
-    *   **Renewal**: Agents can renew the lock if their thought process takes longer than expected, up to **4x the TTL** (with original acquisition tracking).
+| Gate Name | Type | Direction | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Physics Gate** | State Barrier | **Input** (Feeling) | Ensures agents "feel" an event before they "react" to it. |
+| **The Conch** | Mutex Lock | **Output** (Speaking) | Ensures only one agent speaks at a time to prevent chaos. |
 
 ---
 
-## 3. Resolved Architectural Issues
+## 2. The Input Gate: Reaction Gating
 
-The following issues were identified and resolved in the v2.0 development cycle to ensure architectural integrity.
+**The Problem (The Psychic Race Condition):**
+In a naive async system, Agent A speaks. Agent B's loop wakes up, sees the text, and generates a reply *immediately*. Meanwhile, the slow Physics Engine is still calculating that Agent A's words were actually a deadly insult. Agent B replies politely because it hasn't "felt" the insult yet. 500ms later, the stats update, but it's too late—the context is broken.
 
-### [FIXED] Bug A: The Persistence of Ignorance (Physics Race Condition)
-**Status**: RESOLVED (Implemented in `core/ooda.py`)
+**The Solution (`core/ooda.py`):**
+The `OODALoop` implements a strict **Refractory Period**.
 
-*   **The Issue**: The OODA loop correctly gated itself when a `WORLD_EVENT` occurred, but it previously failed to gate itself when an `AGENT_SPEAK` event occurred, leading to reactions before trust was updated.
-*   **The Fix**: `OODALoop` now explicitly triggers `_waiting_for_physics = True` upon detecting `AGENT_SPEAK` from peers. It waits for `PHYSICS_COMPLETE` or `AGENT_STATUS` (RELATIONSHIP_UPDATE) before proceeding to the `Decide` phase. It includes a **120-second safety timeout** to prevent indefinite hangs in case of worker failure.
-*   *Reference*: `core/ooda.py` lines 84-90 (Gating) and 230-234 (Safety Timeout).
+1.  **Trigger:** When `AGENT_SPEAK` or `WORLD_EVENT` is detected, the loop sets `_waiting_for_physics = True`.
+2.  **State:** The agent enters the `FEELING` state (displayed as a pink pulse in the UI).
+3.  **Block:** The OODA loop **pauses**. It will NOT proceed to the `DECIDE` phase, effectively silencing the agent.
+4.  **Release:** The loop waits for a specific control signal from the `PhysicsSystem`:
+    * `PHYSICS_COMPLETE` (for World Events)
+    * `AGENT_STATUS` -> `RELATIONSHIP_UPDATE` (for Peer Speech)
+5.  **Safety:** A 120-second watchdog timer forces the gate open if the Physics Engine hangs, ensuring the agent doesn't go comatose.
 
-### [FIXED] Bug B: The Bottleneck of Memory
-**Status**: RESOLVED (Implemented in `core/ooda.py`)
+---
 
-*   **The Issue**: `recall_memories()` was previously called inside the locked critical section, blocking the entire council while an agent performed slow vector searches.
-*   **The Fix**: `recall_memories` has been moved to the `Decide` phase, occurring **before** the agent attempts to acquire "The Conch". The agent now performs internal reflection while the floor is still open to others.
-*   *Reference*: `core/ooda.py` lines 332-358.
+## 3. The Output Gate: The Conch
+
+**The Problem (The Hallucination Cascade):**
+If two agents speak simultaneously, the chat log becomes nonlinear. Agents reading the log will hallucinate conversations that didn't happen in that order.
+
+**The Solution (`core/heartbeat.py`):**
+A strict **Mutex (Mutual Exclusion)** lock called `SpeakingLock`.
+
+* **Acquisition:** Occurs in the `DECIDE` phase. An agent cannot draft a response without holding the lock.
+* **Atomicity:** Uses `asyncio.Lock` to strictly serialize acquisition requests.
+* **TTL (Time-To-Live):** 180 seconds.
+* **Revocation:** The Heartbeat service monitors the lock. If an agent holds it >180s (e.g., an LLM crash), the lock is forcibly "broken" to keep the simulation alive.
+
+---
+
+## 4. Concurrent Processes
+
+While Speech is serialized, most of the system runs in parallel:
+
+1.  **Physics Calculations:** When `AGENT_SPEAK` occurs, the system spawns `N` background threads (one for every listener) to calculate trust updates simultaneously.
+2.  **Gamemaster Adjudication:** The "Narrative Verdict" loop runs asynchronously, analyzing batches of messages without blocking the main conversation.
+3.  **Drafting:** Agents can `OBSERVE` and `ORIENT` (check stats) while another agent is speaking. They only block when they attempt to `DECIDE` to speak.
+4.  **Dreaming:** The Dream Phase (`core/dream.py`) is fully parallel. All agents generate their diaries and update their neural weights (state osmosis) at the same time.
