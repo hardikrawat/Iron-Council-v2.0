@@ -13,9 +13,13 @@ graph TD
     subgraph "The Hive Mind"
         EventBus -->|Broadcast| OODA_Ares[Ares OODA Loop]
         EventBus -->|Broadcast| OODA_Midas[Midas OODA Loop]
+        EventBus -->|Broadcast| OODA_Dove[Dove OODA Loop]
+        EventBus -->|Broadcast| OODA_Logic[Logic OODA Loop]
         
         OODA_Ares -->|Decide| Lock{The Conch Mutex}
         OODA_Midas -->|Decide| Lock
+        OODA_Dove -->|Decide| Lock
+        OODA_Logic -->|Decide| Lock
         
         Lock -->|Acquired| LLM[LLM Inference]
         LLM -->|Draft| Integrity[Integrity Gatekeeper]

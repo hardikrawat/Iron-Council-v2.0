@@ -190,7 +190,10 @@ class PhysicsSystem:
         # Await all reactions in parallel
         if reaction_tasks:
             # FIX: Also track these in pending_tasks for flush synchronization
-            batch_task = asyncio.create_task(asyncio.gather(*reaction_tasks))
+            # FIX: Properly wrap gather in a coroutine before create_task
+            async def run_reactions():
+                await asyncio.gather(*reaction_tasks)
+            batch_task = asyncio.create_task(run_reactions())
             self.pending_tasks.add(batch_task)
             batch_task.add_done_callback(self.pending_tasks.discard)
             await batch_task

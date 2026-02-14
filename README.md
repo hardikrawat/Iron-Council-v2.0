@@ -20,9 +20,13 @@ graph TD
     subgraph "The Hive Mind"
         EventBus -->|Broadcast| OODA_Ares[Ares OODA Loop]
         EventBus -->|Broadcast| OODA_Midas[Midas OODA Loop]
+        EventBus -->|Broadcast| OODA_Dove[Dove OODA Loop]
+        EventBus -->|Broadcast| OODA_Logic[Logic OODA Loop]
         
         OODA_Ares -->|Decide| Lock{The Conch Mutex}
         OODA_Midas -->|Decide| Lock
+        OODA_Dove -->|Decide| Lock
+        OODA_Logic -->|Decide| Lock
         
         Lock -->|Acquired| LLM[LLM Inference]
         LLM -->|Draft| Integrity[Integrity Gatekeeper]
@@ -85,7 +89,6 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 | **LLM** | `core/llm.py` | Universal LLM service — OpenAI, Anthropic, Ollama (local) |
 | **Memory** | `memory/store.py` | ChromaDB vector database for subjective memory storage and retrieval |
 | **Server** | `server.py` | FastAPI backend + WebSocket Bridge for the frontend |
-| **Terminal** | `main.py` | CLI entry point (legacy turn-based mode) |
 
 ---
 
@@ -117,8 +120,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys
 
-# Install frontend dependencies
-cd ui && npm install && cd ..
+# Install frontend dependencies (CRITICAL: Do not skip)
+cd ui
+npm install
+cd ..
 ```
 
 ---
@@ -135,43 +140,46 @@ For a stable and intelligent experience, we recommend using **Ollama** with a mo
 
 ## Usage
 
-### Option A: Visual Layer (Recommended)
+### Option A: Production Mode (Recommended)
 
-Open `http://localhost:5173` in your browser.
+Run the Iron Council as a standalone, polished application.
 
-#### Advanced Startup Flags
+1.  **Build the UI**:
+    ```bash
+    cd ui && npm install && npm run build && cd ..
+    ```
 
-The launcher supports several flags for automation and service management:
+2.  **Install the Package**:
+    ```bash
+    pip install -e .
+    ```
+
+3.  **Launch**:
+    ```bash
+    iron-council
+    ```
+    Open `http://localhost:8000` in your browser.
+
+### Option B: Development Mode (Hot Reload)
+
+For developers who want real-time frontend updates:
+
+```bash
+./dev_start.sh --open
+```
+
+#### Advanced Startup Flags (DevScript)
+
+The `dev_start.sh` script supports automation flags:
 
 | Flag | Shortcut | Effect |
 |------|----------|--------|
-| `--kill` | `-k` | Kills existing processes on ports 8000 and 5173 before start |
-| `--reset` | `-r` | Triggers a factory reset (state & memory) before start |
-| `--ollama-restart` | `-o` | Restarts the Ollama service to ensure a fresh session |
-| `--open` | `-b` | Automatically opens the browser once systems are online |
-| `--reconfigure` | | Force re-runs the environment setup script |
-| `--help` | `-h` | Shows the Project Banner and usage guide |
-
-**Example:**
-```bash
-./start_visual_council.sh --kill --reset --open
-```
-
-### Option B: Terminal Mode
-
-```bash
-python main.py
-```
-
-You'll be guided through LLM provider selection:
-
-```
---- IRON COUNCIL SETUP WALKTHROUGH ---
-1. Cloud APIs (OpenAI / Anthropic)
-2. Local Model (Ollama)
-
-Select your LLM provider (1 or 2):
-```
+| `--kill` | `-k` | Kills existing processes on ports 8000 and 5173 |
+| `--reset` | `-r` | Triggers a factory reset (state & memory) |
+| `--ollama-restart` | `-o` | Restarts Ollama service |
+| `--open` | `-b` | Automatically opens browser |
+| `--reconfigure` | | Force re-runs setup |
+| `--help` | `-h` | Shows help |
 
 ### Commands
 
@@ -179,9 +187,11 @@ Select your LLM provider (1 or 2):
 |---------|--------|
 | *Type normally* | Address the council — all agents respond |
 | `end session` | Trigger the Dream Phase — agents reflect and consolidate memory |
-| `python reset.py` | Factory reset — wipe memories and restore default soul states |
-| `./start_visual_council.sh --kill` | Clean start by clearing busy ports |
-| `./start_visual_council.sh --reset` | Combo start: Reset data then launch council |
+| `iron-council` | Start the production server |
+| `iron-council setup` | Run the setup wizard |
+| `iron-council reset` | Factory reset via CLI |
+| `./dev_start.sh --kill` | Clean start (Dev Mode) |
+| `./dev_start.sh --reset` | Combo start (Dev Mode) |
 
 ### Example Session
 
@@ -339,10 +349,9 @@ IronCouncil/
 ├── tests/                       # 6-Layer Test Suite
 ├── utils/                       # Shared formatting and utility functions
 ├── server.py                    # FastAPI + WebSocket backend
-├── main.py                      # Terminal entry point (legacy mode)
 ├── reset.py                     # Factory reset utility
 ├── run_tests.sh                 # Optimized Phased Test Runner
-├── start_visual_council.sh      # Launch script (backend + frontend)
+├── dev_start.sh                 # Developer Launch script (backend + frontend)
 ├── setup_env.py                 # Interactive environment setup
 ├── requirements.txt             # Python dependencies
 └── .env.example                 # Configuration template
@@ -379,6 +388,21 @@ pip install --upgrade chromadb
 ### Empty Relationship Graph
 
 Ensure the backend is running the latest code. Restart the server and refresh the UI.
+
+### "Address already in use" Error
+If you see an error about port 8000 or 5173 being busy, run the "Magic Fix" command:
+```bash
+./start_visual_council.sh --kill
+```
+This forces all old processes to close.
+
+### "Illegal instruction" (Python 3.14 / ChromaDB)
+If you are using Python 3.14 (bleeding edge), you may crash on startup due to `onnxruntime` compatibility.
+**Fix:** Please downgrade to Python 3.11 or 3.12 for maximum stability.
+
+### "SQLite version mismatch"
+ChromaDB requires SQLite >= 3.35. If you are on an old Linux distro, you may need to upgrade `sqlite3` manually or use a Docker container.
+
 
 ---
 

@@ -5,11 +5,13 @@ import sys
 def setup_env(force=False):
     if os.path.exists(".env") and not force:
         print("✅ .env file already exists. Skipping setup.")
-        print("   (Run with --force or use ./start_visual_council.sh --reconfigure to change settings)")
+        print("   (Run 'iron-council setup --force' or use ./dev_start.sh --reconfigure to change settings)")
         return
 
+    current_config = {}
     if force and os.path.exists(".env"):
-        print("\n🔄 Reconfiguring... (current .env will be overwritten)")
+        print("\n🔄 Reconfiguring... (current .env will be overwritten but defaults preserved)")
+        current_config = load_current_env()
 
     print("\n" + "="*50)
     print("IRON COUNCIL - INITIAL CONFIGURATION")
@@ -38,8 +40,11 @@ def setup_env(force=False):
             
     elif choice == "2":
         print("\n[Local Setup - Ollama]")
-        url = input("Ollama URL (default: http://localhost:11434/api/chat): ").strip() or "http://localhost:11434/api/chat"
-        model = input("Model Name (e.g. mistral, llama3, neural-chat): ").strip() or "mistral"
+        default_url = current_config.get("LOCAL_LLM_URL", "http://localhost:11434/api/chat")
+        url = input(f"Ollama URL (default: {default_url}): ").strip() or default_url
+        
+        default_model = current_config.get("LOCAL_MODEL_NAME", "mistral")
+        model = input(f"Model Name (default: {default_model}): ").strip() or default_model
         
         env_content.append(f"LLM_PROVIDER=local")
         env_content.append(f"LOCAL_LLM_URL={url}")
@@ -74,6 +79,17 @@ def setup_env(force=False):
         f.write("\n".join(env_content))
     
     print("\n✅ Configuration saved to .env")
+
+def load_current_env():
+    """Reads the current .env file into a dictionary."""
+    config = {}
+    if os.path.exists(".env"):
+        with open(".env", "r") as f:
+            for line in f:
+                if "=" in line and not line.startswith("#"):
+                    key, val = line.strip().split("=", 1)
+                    config[key] = val
+    return config
 
 if __name__ == "__main__":
     force = "--force" in sys.argv

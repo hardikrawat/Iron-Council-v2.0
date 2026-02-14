@@ -9,6 +9,7 @@ DO_RESET=false
 DO_OLLAMA_RESTART=false
 DO_OPEN_BROWSER=false
 DO_RECONFIGURE=false
+DO_STOP=false
 
 # ANSI Colors
 RED='\033[0;31m'
@@ -31,20 +32,21 @@ show_help() {
     echo "╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚═╝╚══════╝"
     echo -e "${NC}"
     echo "Iron Council v2.0 - Autonomous Multi-Agent Simulation Engine"
-    echo "Research & Development Edition"
+    echo "Developer Edition (Hot Reload Enabled)"
     echo ""
-    echo -e "${YELLOW}Usage: ./start_visual_council.sh [FLAGS]${NC}"
+    echo -e "${YELLOW}Usage: ./dev_start.sh [FLAGS]${NC}"
     echo ""
     echo "Flags:"
     echo "  -k, --kill            Force kill existing processes on ports 8000 (Backend) & 5173 (Frontend)."
     echo "  -r, --reset           Run factory reset (wipes memory/state) before starting."
     echo "  -o, --ollama-restart  Restart the Ollama service to ensure a fresh model state."
     echo "  -b, --open            Automatically open the UI in the default browser."
+    echo "  -s, --stop            Kill all existing backend and frontend processes and exit."
     echo "  --reconfigure         Force re-run of the environment setup interactive script."
     echo "  -h, --help            Show this help message."
     echo ""
     echo "Example:"
-    echo "  ./start_visual_council.sh --kill --reset --open"
+    echo "  ./dev_start.sh --kill --reset --open"
     echo ""
 }
 
@@ -57,6 +59,7 @@ while [[ "$#" -gt 0 ]]; do
         -r|--reset) DO_RESET=true ;;
         -o|--ollama-restart) DO_OLLAMA_RESTART=true ;;
         -b|--open) DO_OPEN_BROWSER=true ;;
+        -s|--stop) DO_STOP=true ;;
         --reconfigure) DO_RECONFIGURE=true ;;
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; show_help; exit 1 ;;
@@ -66,6 +69,15 @@ done
 
 
 echo -e "${BLUE}--- IRON COUNCIL SYSTEM INITIALIZATION ---${NC}"
+
+# Stop Application (if requested)
+if [ "$DO_STOP" = true ]; then
+    echo -e "${YELLOW}[ACTION] Stopping all Iron Council processes...${NC}"
+    lsof -t -i:8000 | xargs kill -9 2>/dev/null
+    lsof -t -i:5173 | xargs kill -9 2>/dev/null
+    echo -e "${GREEN}✔ Systems stopped.${NC}"
+    exit 0
+fi
 
 # --- LOGGING SETUP ---
 mkdir -p logs
@@ -127,6 +139,14 @@ elif [ ! -f ".env" ]; then
     $PYTHON_CMD setup_env.py
 fi
 
+# Connectivity Check (ChromaDB Warning)
+if [ ! -d "db" ] && ! ping -c 1 google.com &> /dev/null; then
+    echo -e "${RED}⚠️  OFFLINE WARNING: First-run detected without internet connection.${NC}"
+    echo -e "${YELLOW}ChromaDB needs to download the embedding model (all-MiniLM-L6-v2) (~80MB).${NC}"
+    echo -e "${YELLOW}Startup may fail if you are completely offline. Proceeding anyway...${NC}"
+    sleep 3
+fi
+
 # Reset (if requested)
 if [ "$DO_RESET" = true ]; then
     echo -e "${RED}[ACTION] Triggering Factory Reset...${NC}"
@@ -139,7 +159,39 @@ if [ "$DO_RESET" = true ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 2. Main Startup
+# 2. Dependency Checks
+# -----------------------------------------------------------------------------
+
+# Frontend Dependency Check
+if [ ! -d "ui/node_modules" ]; then
+    echo -e "${RED}⚠️  CRITICAL ERROR: Frontend dependencies not found!${NC}"
+    echo -e "${YELLOW}The 'ui/node_modules' directory is missing, which is required for the Visual Council.${NC}"
+    echo ""
+    echo -e "To resolve this manually, run:"
+    echo -e "  ${CYAN}cd ui && npm install${NC}"
+    echo ""
+    echo -e "Would you like to install them automatically now? (y/n)"
+    
+    # Check if terminal is interactive
+    if [ -t 0 ]; then
+        read -r -p "> " install_choice
+        if [[ "$install_choice" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}[ACTION] Installing frontend dependencies...${NC}"
+            (cd ui && npm install)
+            echo -e "${GREEN}✔ Dependencies installed. Resuming startup...${NC}"
+        else
+            echo -e "${RED}Aborting startup. Please install dependencies manually.${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Non-interactive shell detected. Cannot prompt for installation.${NC}"
+        echo -e "${YELLOW}Please run 'cd ui && npm install' before starting.${NC}"
+        exit 1
+    fi
+fi
+
+# -----------------------------------------------------------------------------
+# 3. Main Startup
 # -----------------------------------------------------------------------------
 
 echo "[1/2] Starting FastAPI Server (Port 8000)..."

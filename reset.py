@@ -1,13 +1,18 @@
 import json
 import os
 import shutil
+from dotenv import load_dotenv
+
+# Load env to get dynamic model preference
+load_dotenv()
+DEFAULT_MODEL = os.getenv("LOCAL_MODEL_NAME", "mistral-large")
 
 # The Default Data: Exact starting JSON for all 4 agents (BDI Schema)
 DEFAULT_STATES = {
     "general_ares": {
         "name": "General Ares",
         "archetype": "General",
-        "base_model": "mistral-large",
+        "base_model": DEFAULT_MODEL,
         "core_values": ["Strength", "Hierarchy", "Decisiveness"],
         "dynamic_stats": {
             "confidence": 85,
@@ -29,7 +34,7 @@ DEFAULT_STATES = {
     "diplomat_dove": {
         "name": "Diplomat Dove",
         "archetype": "Diplomat",
-        "base_model": "mistral-large",
+        "base_model": DEFAULT_MODEL,
         "core_values": ["Peace", "Cooperation", "Nuance"],
         "dynamic_stats": {
             "confidence": 60,
@@ -51,7 +56,7 @@ DEFAULT_STATES = {
     "banker_midas": {
         "name": "Banker Midas",
         "archetype": "Banker",
-        "base_model": "mistral-large",
+        "base_model": DEFAULT_MODEL,
         "core_values": ["Wealth", "Stability", "Leverage"],
         "dynamic_stats": {
             "confidence": 90,
@@ -73,7 +78,7 @@ DEFAULT_STATES = {
     "analyst_logic": {
         "name": "Analyst Logic",
         "archetype": "Analyst",
-        "base_model": "mistral-large",
+        "base_model": DEFAULT_MODEL,
         "core_values": ["Truth", "Data", "Efficiency"],
         "dynamic_stats": {
             "confidence": 100,

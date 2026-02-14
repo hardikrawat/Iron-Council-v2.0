@@ -11,20 +11,16 @@ from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-
-# Handle broken environment (ChromaDB/Pydantic conflict)
-import sys
-from unittest.mock import MagicMock
+from fastapi.staticfiles import StaticFiles
 
 try:
     import chromadb
 except Exception as e:
-    print(f"WARNING: ChromaDB import failed ({e}). Mocking memory system for Visual Layer.")
-    sys.modules["chromadb"] = MagicMock()
-    sys.modules["chromadb.utils"] = MagicMock()
-    sys.modules["chromadb.utils.embedding_functions"] = MagicMock()
+    logger.error(f"CRITICAL: ChromaDB import failed despite patches: {e}")
+    # We still have a hard failure if this happens, as mocks were explicitly forbidden
+    raise e
 
-# Core Imports explicitly matching main.py structure
+# Core Imports
 from core.agent import IronAgent
 from core.llm import LLMService
 from core.physics import GamemasterPhysics
@@ -41,7 +37,65 @@ from core.physics_system import PhysicsSystem
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VisualCouncil")
 
-app = FastAPI()
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    global main_loop, active_loops
+    main_loop = asyncio.get_running_loop()
+    event_bus.capture_loop()
+    
+    # 1. Start Support Services
+    asyncio.create_task(keepalive_task())
+    
+    # Phase 3: Start Heartbeat
+    asyncio.create_task(heartbeat.start())
+
+    # Phase 4: Start Physics System
+    logger.info("Initializing Physics System...")
+    global physics_system
+    physics_system = PhysicsSystem(
+        event_bus=event_bus,
+        physics=simulation.physics,
+        agents=simulation.agents,
+        transcript=simulation.session_log, # Shared mutable reference (Physics appends to this)
+        on_update=simulation.save_history  # Save callback
+    )
+    asyncio.create_task(physics_system.start())
+
+    
+    # Phase 3: Subscribe Bridge
+    event_bus.subscribe(EventType.AGENT_SPEAK, bridge_events_to_websocket)
+    event_bus.subscribe(EventType.SILENCE_WARNING, bridge_silence_warning)
+    event_bus.subscribe(EventType.AGENT_STATUS, bridge_agent_status)
+    event_bus.subscribe(EventType.SYSTEM_TICK, bridge_system_tick)
+    
+    # Activity Bridge
+    from functools import partial
+    event_bus.subscribe(EventType.MEMORY_ACCESS, partial(bridge_activity_event, event_type="DISK"))
+    event_bus.subscribe(EventType.LLM_ACTIVITY, partial(bridge_activity_event, event_type="LLM"))
+    event_bus.subscribe(EventType.EGO_CHECK, partial(bridge_activity_event, event_type="EGO"))
+    event_bus.subscribe(EventType.PHYSICS_SYNC, partial(bridge_activity_event, event_type="PHYS"))
+    event_bus.subscribe(EventType.STATE_SAVE, partial(bridge_activity_event, event_type="DISK"))
+    
+    # Phase 3: Initialize OODA Loops
+    logger.info("Initializing OODA Loops...")
+    for agent in simulation.agents:
+        loop = OODALoop(agent, event_bus, heartbeat)
+        active_loops.append(loop)
+        asyncio.create_task(loop.start())
+        logger.info(f"Started OODA loop for {agent.soul.name}")
+        
+    yield
+    
+    # Shutdown logic (optional but good practice)
+    logger.info("Shutting down services...")
+    for loop in active_loops:
+        loop.stop()
+    heartbeat.stop()
+
+app = FastAPI(lifespan=lifespan)
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -51,6 +105,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Serve Frontend (Production Mode) ---
+# Mount static files if the build directory exists
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
+if os.path.exists(FRONTEND_DIST):
+    logger.info(f"Serving frontend from {FRONTEND_DIST}")
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+    
+# Catch-all route moved to end of file to prevent shadowing API routes
+else:
+    logger.warning("Frontend build directory (ui/dist) not found. Run 'cd ui && npm run build' to serve UI via backend.")
 
 # --- GLOBAL EDA STATE ---
 event_bus = EventBus()
@@ -109,34 +174,41 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        
-        # Send INITIAL_SYNC to new client
-        agents_data = []
-        for agent in simulation.agents:
-            # Prefer cached status for phase/details, but fallback to agent soul for base data
-            last_status = agent_status_cache.get(agent.agent_name, {})
-            # Include base data
-            agents_data.append({
-                "id": agent.agent_name,
-                "name": agent.soul.name,
-                "status": last_status.get("status", "IDLE"),
-                "phase": last_status.get("phase", ""),
-                "details": last_status.get("details", "Standing by."),
-                "stats": agent.soul.dynamic_stats.model_dump(),
-                "relationships": agent.soul.get_serializable_relationships(),
-                "goals": [g.model_dump() for g in agent.soul.goals]
-            })
+        try:
+            await websocket.accept()
+            self.active_connections.append(websocket)
             
-        await websocket.send_json({
-            "type": "initial_sync",
-            "data": {
-                "agents": agents_data,
-                "heartbeat": heartbeat.stats if heartbeat else {}
-            }
-        })
-        logger.info(f"[WS] New client connected. Synced {len(agents_data)} agents.")
+            # Send INITIAL_SYNC to new client
+            agents_data = []
+            for agent in simulation.agents:
+                # Prefer cached status for phase/details, but fallback to agent soul for base data
+                last_status = agent_status_cache.get(agent.agent_name, {})
+                # Include base data
+                agents_data.append({
+                    "id": agent.agent_name,
+                    "name": agent.soul.name,
+                    "status": last_status.get("status", "IDLE"),
+                    "phase": last_status.get("phase", ""),
+                    "details": last_status.get("details", "Standing by."),
+                    "stats": agent.soul.dynamic_stats.model_dump(),
+                    "relationships": agent.soul.get_serializable_relationships(),
+                    "goals": [g.model_dump() for g in agent.soul.goals]
+                })
+                
+            await websocket.send_json({
+                "type": "initial_sync",
+                "data": {
+                    "agents": agents_data,
+                    "heartbeat": heartbeat.stats if heartbeat else {}
+                }
+            })
+            logger.info(f"[WS] New client connected. Synced {len(agents_data)} agents.")
+        except WebSocketDisconnect:
+            logger.warning("[WS] Client disconnected during initial sync.")
+            self.disconnect(websocket)
+        except Exception as e:
+            logger.error(f"[WS] Error during initial sync: {e}")
+            self.disconnect(websocket)
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -430,52 +502,9 @@ async def keepalive_task():
         if manager:
             await manager.broadcast(heartbeat_payload)
 
-@app.on_event("startup")
-async def startup_event():
-    global main_loop, active_loops
-    main_loop = asyncio.get_running_loop()
-    event_bus.capture_loop()
-    
-    # 1. Start Support Services
-    asyncio.create_task(keepalive_task())
-    
-    # Phase 3: Start Heartbeat
-    asyncio.create_task(heartbeat.start())
+from contextlib import asynccontextmanager
 
-    # Phase 4: Start Physics System
-    logger.info("Initializing Physics System...")
-    global physics_system
-    physics_system = PhysicsSystem(
-        event_bus=event_bus,
-        physics=simulation.physics,
-        agents=simulation.agents,
-        transcript=simulation.session_log, # Shared mutable reference (Physics appends to this)
-        on_update=simulation.save_history  # Save callback
-    )
-    asyncio.create_task(physics_system.start())
-
-    
-    # Phase 3: Subscribe Bridge
-    event_bus.subscribe(EventType.AGENT_SPEAK, bridge_events_to_websocket)
-    event_bus.subscribe(EventType.SILENCE_WARNING, bridge_silence_warning)
-    event_bus.subscribe(EventType.AGENT_STATUS, bridge_agent_status)
-    event_bus.subscribe(EventType.SYSTEM_TICK, bridge_system_tick)
-    
-    # Activity Bridge
-    from functools import partial
-    event_bus.subscribe(EventType.MEMORY_ACCESS, partial(bridge_activity_event, event_type="DISK"))
-    event_bus.subscribe(EventType.LLM_ACTIVITY, partial(bridge_activity_event, event_type="LLM"))
-    event_bus.subscribe(EventType.EGO_CHECK, partial(bridge_activity_event, event_type="EGO"))
-    event_bus.subscribe(EventType.PHYSICS_SYNC, partial(bridge_activity_event, event_type="PHYS"))
-    event_bus.subscribe(EventType.STATE_SAVE, partial(bridge_activity_event, event_type="DISK"))
-    
-    # Phase 3: Initialize OODA Loops
-    logger.info("Initializing OODA Loops...")
-    for agent in simulation.agents:
-        loop = OODALoop(agent, event_bus, heartbeat)
-        active_loops.append(loop)
-        asyncio.create_task(loop.start())
-        logger.info(f"Started OODA loop for {agent.soul.name}")
+@asynccontextmanager
 
 async def _handle_end_session():
     """
@@ -809,6 +838,27 @@ async def force_release_conch():
     })
     return {"status": f"Conch released from {owner}"}
 
+def run_cli():
+    """Entry point for the 'iron-council' console command."""
+    import uvicorn
+    import sys
+    
+    # Check for keywords to run secondary tools
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "setup":
+            from setup_env import setup_env
+            setup_env(force="--force" in sys.argv)
+            return
+        elif sys.argv[1] == "reset":
+            from reset import reset_agents, wipe_memory
+            reset_agents()
+            wipe_memory()
+            return
+
+    print("🚀 Starting Iron Council Server...")
+    # Assume we are running from the package context
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+
 # --- LOGGING ENDPOINTS ---
 @app.get("/logs/download")
 async def download_logs():
@@ -875,6 +925,17 @@ async def get_log_size():
         size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
         
     return {"size_bytes": size_bytes, "size_formatted": size_str}
+
+# --- SPA CATCH-ALL (Must be last) ---
+if os.path.exists(FRONTEND_DIST):
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Fallback for React Router (e.g. /dashboard, /settings)
+        # API routes are already handled above.
+        file_path = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+             return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn
