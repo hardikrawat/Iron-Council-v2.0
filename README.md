@@ -21,66 +21,101 @@ The system does not run in a linear circle. It runs as independent services comm
 
 ```mermaid
 graph TD
-    %% High-Contrast Theme for Light/Dark Mode Compatibility
-    classDef darkNode fill:#333,stroke:#fff,stroke-width:2px,color:#fff;
+    %% --- PROFESSIONAL COLOR PALETTE ---
     classDef inputNode fill:#2d3436,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef looseNode fill:#2d3436,stroke:#fff,stroke-width:1px,color:#fff,stroke-dasharray: 5 5;
+    classDef looseNode fill:#2d3436,stroke:#fff,stroke-width:1px,color:#fff,stroke-dasharray:5 5;
+    classDef globalNode fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;  %% Purple for global resources
 
-    User["User / Chairman"]:::inputNode -->|Input| EventBus["Event Bus (Async Pub/Sub)"]:::darkNode
-    Heartbeat["Heartbeat / Clock"]:::inputNode -->|Tick| EventBus
+    %% --- CORE INFRASTRUCTURE (Deep Blues) ---
+    classDef coreNode fill:#1a237e,stroke:#fff,stroke-width:2px,color:#fff;      %% Event Bus
+    classDef infraNode fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff;     %% Heartbeat / Server
+    classDef storageNode fill:#37474f,stroke:#fff,stroke-width:2px,color:#fff;    %% JSON
+    classDef vectorNode fill:#263238,stroke:#fff,stroke-width:2px,color:#fff;     %% ChromaDB
 
-    subgraph "THE HIVE MIND — Async OODA Loops"
+    %% --- AGENT LOOP (Teals & Purples) ---
+    classDef agentNode fill:#004d40,stroke:#fff,stroke-width:2px,color:#fff;      %% OODA Loop
+    classDef llmNode fill:#4a148c,stroke:#fff,stroke-width:2px,color:#fff;        %% LLM Synthesis
+
+    %% --- PHYSICS ENGINE (Blues & Oranges) ---
+    classDef physicsNode fill:#01579b,stroke:#fff,stroke-width:2px,color:#fff;    %% Physics System
+    classDef gmNode fill:#b45309,stroke:#fff,stroke-width:2px,color:#fff;         %% Gamemaster
+
+    %% --- UI LAYER (Warm Grays) ---
+    classDef uiNode fill:#546e7a,stroke:#fff,stroke-width:2px,color:#fff;         %% Server / UI
+
+    %% --- INPUTS ---
+    User["User / Chairman"]:::inputNode -->|Input| EventBus
+    Heartbeat["Heartbeat / Clock"]:::infraNode -->|Tick / Entropy| EventBus
+
+    %% --- CENTRAL NERVOUS SYSTEM ---
+    EventBus["Event Bus (Async Pub/Sub)"]:::coreNode
+    
+    %% --- THE FIX: VISUALIZE THE DEPENDENCY ---
+    %% This shows the OODA loop explicitly waiting for this specific signal
+    EventBus -.->|Signal: PHYSICS_COMPLETE| OODA
+
+    %% --- SHARED GLOBAL RESOURCE ---
+    Lock{"The Conch (Global Mutex)"}:::globalNode
+
+    %% --- AGENT LOOP ---
+    subgraph "🧠 THE HIVE MIND — Async OODA Loops"
         direction TB
-        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::darkNode
-        OODA -->|Observe/Orient| Recall["Recall: Query ChromaDB"]:::looseNode
-        OODA -->|Decide| Lock{"The Conch (Mutex)"}:::darkNode
-        Lock -->|Acquire| LLM["LLM Synthesis"]:::darkNode
-        LLM -->|Draft| Ego["Integrity (Ego Filter)"]
-        Ego -->|Act| EventBus
-    end
-
-    subgraph "CONSEQUENCE PHASE — Physics Engine"
-        direction TB
-        EventBus -->|AGENT_SPEAK| PhysicsSys["Physics System (Listener)"]:::darkNode
-        PhysicsSys -->|calculate_impact| PhysicsUA["World Impact"]
-        PhysicsUA -->|Stats + Goals| JSON
+        EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::agentNode
         
-        PhysicsSys -->|calculate_reaction| PhysicsAA["Relationship Update"]
-        PhysicsAA -->|Trust Deltas| JSON
-
-        PhysicsSys -->|adjudicate_narrative| GM["Gamemaster Loop"]:::darkNode
-        GM -->|Goal Progress| JSON
+        OODA -->|Observe| Recall["Recall: Query ChromaDB"]:::looseNode
+        OODA -->|Decide| Lock
+        Lock -->|Acquire| LLM["LLM Synthesis"]:::llmNode
+        LLM -->|Draft| Ego["Integrity (Ego Filter)"]
+        Ego -->|Act / Speak| EventBus
     end
 
-    subgraph "REFLECTION PHASE — End of Session"
+    %% --- PHYSICS ENGINE ---
+    subgraph "⚙️ CONSEQUENCE PHASE — Physics Engine"
+        direction TB
+        EventBus <-->|Sub: AGENT_SPEAK / Pub: UPDATE| PhysicsSys["Physics System (Listener)"]:::physicsNode
+        
+        PhysicsSys -->|Calculate Impact| PhysicsUA["World Impact"]
+        PhysicsUA -->|Update Stats| JSON
+        
+        PhysicsSys -->|Adjudicate| GM["Gamemaster Loop"]:::gmNode
+        GM -->|Goal Progress| JSON
+        GM -->|Pub: NARRATIVE_VERDICT| EventBus
+        
+        PhysicsAA["Relationship Update"]
+        PhysicsSys -->|Calculate Reaction| PhysicsAA
+        PhysicsAA -->|Update Trust| JSON
+    end
+
+    %% --- STORAGE LAYER ---
+    subgraph "💾 The Mutable Soul (Storage)"
+        JSON[("soul_state.json")]:::storageNode
+        Vector[("ChromaDB — Memory")]:::vectorNode
+        
+        Recall <-->|Read/Query| Vector
+        OODA -.->|Read Only| JSON
+    end
+
+    %% --- REFLECTION PHASE ---
+    subgraph "🌙 REFLECTION PHASE — End of Session"
         direction TB
         EndSession["end session"]:::inputNode --> Dream["Dream Phase"]
-        Dream -->|Trust Deltas Injected| Diary["Subjective Diary Entry"]
+        JSON -.->|Read Final State| Dream
+        Dream -->|Inject Memories| Diary["Subjective Diary Entry"]
         Diary -->|Store| Vector
-        Diary --> Agenda["review_agendas — Hidden Agenda Re-evaluation"]:::darkNode
-        Agenda -->|Updated Agendas| JSON
+        Diary --> Agenda["review_agendas"]:::agentNode
+        Agenda -->|Update Agendas| JSON
     end
 
-    subgraph "VISUAL LAYER"
-        Server["FastAPI + WebSocket"]:::darkNode
-        UI["React Frontend"]:::darkNode
+    %% --- VISUAL LAYER ---
+    subgraph "🖥️ VISUAL LAYER"
+        Server["FastAPI + WebSocket"]:::uiNode
+        UI["React Frontend"]:::uiNode
         Server <-->|Real-time Streaming| UI
-        UI --> Graph["Syndicate Graph"]:::looseNode
-        UI --> Thread["Thread View"]:::looseNode
-        UI --> Stats["Agent Stats Sidebar"]:::looseNode
     end
     
-    EventBus <-->|WebSocket| Server
+    EventBus <-->|WebSocket Bridge| Server
 
-    %% Storage Layer (Moved to bottom to prevent crossing lines)
-    subgraph "The Mutable Soul (Storage)"
-        JSON["soul_state.json"]:::darkNode
-        Vector["ChromaDB — Subjective Memory"]:::darkNode
-        Recall -->|Query| Vector
-        OODA -->|Read State| JSON
-    end
-
-    %% High Contrast Styles (Using Hex for consistency)
+    %% --- INDIVIDUAL NODE STYLES (keep special colors) ---
     style PhysicsUA fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff
     style PhysicsAA fill:#e65100,stroke:#fff,stroke-width:2px,color:#fff
     style Dream fill:#1b5e20,stroke:#fff,stroke-width:2px,color:#fff
