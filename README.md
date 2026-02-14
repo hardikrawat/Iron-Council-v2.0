@@ -179,6 +179,7 @@ The `dev_start.sh` script supports automation flags:
 | `--reset` | `-r` | Triggers a factory reset (state & memory) |
 | `--ollama-restart` | `-o` | Restarts Ollama service |
 | `--open` | `-b` | Automatically opens browser |
+| `--stop` | `-s` | Stops all existing processes and exits |
 | `--reconfigure` | | Force re-runs setup |
 | `--help` | `-h` | Shows help |
 
@@ -377,7 +378,7 @@ ollama pull llama3  # if not installed
 Increase the timeout in `.env`:
 
 ```bash
-LLM_TIMEOUT=300
+LLM_TIMEOUT=120
 ```
 
 ### ChromaDB Issues
@@ -393,7 +394,7 @@ Ensure the backend is running the latest code. Restart the server and refresh th
 ### "Address already in use" Error
 If you see an error about port 8000 or 5173 being busy, run the "Magic Fix" command:
 ```bash
-./start_visual_council.sh --kill
+./dev_start.sh --kill
 ```
 This forces all old processes to close.
 

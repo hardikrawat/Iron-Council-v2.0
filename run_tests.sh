@@ -3,7 +3,14 @@
 # Phase 1: Parallel Non-LLM Tests (Fast)
 # Phase 2: Sequential LLM Tests (GPU Safe)
 
-VENV_PYTEST="./venv_stable/bin/pytest"
+# Determine Pytest path
+if [ -f "./venv_stable/bin/pytest" ]; then
+    VENV_PYTEST="./venv_stable/bin/pytest"
+elif [ -f "./venv/bin/pytest" ]; then
+    VENV_PYTEST="./venv/bin/pytest"
+else
+    VENV_PYTEST="pytest"
+fi
 
 echo "🚀 Starting Phase 1: Parallel Non-LLM Tests..."
 $VENV_PYTEST -m "not llm" -n auto --html=assets/report_fast.html
