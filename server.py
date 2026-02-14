@@ -13,6 +13,44 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import warnings
+# Silence Pydantic 3.14 compatibility warnings
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic V1 functionality.*")
+
+# Setup logging FIRST to avoid NameError if subsequent imports fail
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("VisualCouncil")
+
+# Silence noisy secondary loggers
+logging.getLogger("chromadb.telemetry").setLevel(logging.WARNING)
+logging.getLogger("core.agent").setLevel(logging.WARNING) # Silence model overrides on import
+
+# --- Python 3.14 Compatibility Patch for ChromaDB (Pydantic v1) ---
+try:
+    import pydantic.v1.fields
+    _original_infer = pydantic.v1.fields.ModelField.infer
+
+    def _patched_infer(*args, **kwargs):
+        try:
+            return _original_infer(*args, **kwargs)
+        except Exception as e:
+            if "unable to infer type" in str(e):
+                from typing import Any
+                # On Python 3.14, Pydantic v1 fails to infer types for certain attributes
+                # like 'chroma_server_nofile'. We fallback to Any to allow initialization.
+                kwargs['annotation'] = Any
+                return _original_infer(*args, **kwargs)
+            raise
+
+    pydantic.v1.fields.ModelField.infer = _patched_infer
+    # Moved to a lower debug level to keep startup clean
+    logger.debug("Applied Python 3.14 compatibility patch for Pydantic v1.")
+except ImportError:
+    # Pydantic v1 might not be installed or already using v2
+    pass
+except Exception as e:
+    logger.warning(f"Failed to apply Pydantic compatibility patch: {e}")
+
 try:
     import chromadb
 except Exception as e:
@@ -31,26 +69,35 @@ from core.dream import dream_phase, dream_phase_stream, review_agendas
 from core.event_bus import EventBus, EventType
 from core.heartbeat import Heartbeat
 from core.ooda import OODALoop, EventBuffer
+# Physics System Import moved after logging setup
 from core.physics_system import PhysicsSystem
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("VisualCouncil")
 
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    global main_loop, active_loops
+    global main_loop, active_loops, tui_monitor
     main_loop = asyncio.get_running_loop()
     event_bus.capture_loop()
     
+    # 1. Initialize TUI Monitor (Wait to start until simulation begins)
+    tui_monitor = TUIManager(simulation, heartbeat)
+    if not (hasattr(app, "cli_mode") and app.cli_mode):
+         # If not running through run_cli, we might still want basic logs
+         pass
+
     # 1. Start Support Services
     asyncio.create_task(keepalive_task())
     
     # Phase 3: Start Heartbeat
     asyncio.create_task(heartbeat.start())
+
+    # Log Frontend Status
+    if os.path.exists(FRONTEND_DIST):
+        logger.info(f"Serving frontend from {FRONTEND_DIST}")
+    else:
+        logger.warning("Frontend build directory (ui/dist) not found. Run 'cd ui && npm run build' for production UI.")
 
     # Phase 4: Start Physics System
     logger.info("Initializing Physics System...")
@@ -90,6 +137,9 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown logic (optional but good practice)
+    if tui_monitor and tui_monitor.is_active:
+        tui_monitor.stop()
+
     logger.info("Shutting down services...")
     for loop in active_loops:
         loop.stop()
@@ -110,12 +160,10 @@ app.add_middleware(
 # Mount static files if the build directory exists
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
 if os.path.exists(FRONTEND_DIST):
-    logger.info(f"Serving frontend from {FRONTEND_DIST}")
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
-    
-# Catch-all route moved to end of file to prevent shadowing API routes
 else:
-    logger.warning("Frontend build directory (ui/dist) not found. Run 'cd ui && npm run build' to serve UI via backend.")
+    # Just a placeholder, we'll log the warning in lifespan
+    pass
 
 # --- GLOBAL EDA STATE ---
 event_bus = EventBus()
@@ -215,23 +263,26 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        dead_connections = []
         for connection in list(self.active_connections):
             try:
-                await connection.send_json(message)
-            except RuntimeError:
-                try:
-                    self.disconnect(connection)
-                except ValueError:
-                    pass
+                # FIX CON-01: Use wait_for to prevent hanging on slow clients
+                await asyncio.wait_for(connection.send_json(message), timeout=2.0)
+            except (RuntimeError, WebSocketDisconnect):
+                dead_connections.append(connection)
             except Exception as e:
-                logger.error(f"Error broadcasting to client: {e}")
-                try:
-                    self.disconnect(connection)
-                except ValueError:
-                    pass
+                # Don't log expected disconnect noise
+                if "broken pipe" not in str(e).lower() and "closed" not in str(e).lower():
+                    logger.debug(f"Error broadcasting to client: {e}")
+                dead_connections.append(connection)
+        
+        # Batch cleanup
+        for dead in dead_connections:
+            self.disconnect(dead)
 
 manager = ConnectionManager()
 simulation = CouncilSimulation(event_bus)
+simulation.start_time = time.time()
 
 # Add Persistence Methods to Simulation
 def load_history(self):
@@ -378,6 +429,114 @@ async def bridge_activity_event(payload: dict, event_type: str):
     # Standard log call will now be picked up by WebSocketHandler
     logger.info(f"[{event_type}] {agent} -> {detail}")
 
+# --- TUI SYSTEM ---
+
+class TUIManager:
+    """
+    Manages the professional terminal interface with a fixed header and 
+    scrolling event feed. Uses ANSI escape codes for cursor management.
+    """
+    HEADER_SIZE = 14  # Lines reserved for the banner + metrics
+    
+    def __init__(self, simulation, heartbeat):
+        self.simulation = simulation
+        self.heartbeat = heartbeat
+        self.is_active = False
+        self._lock = asyncio.Lock()
+
+    def start(self):
+        """Prepares the terminal for TUI mode."""
+        self.is_active = True
+        # Enter alternate screen buffer and hide cursor
+        print("\033[?1049h\033[?25l", end="")
+        # Set scrolling region (from HEADER_SIZE+1 to bottom)
+        print(f"\033[{self.HEADER_SIZE + 1};r", end="")
+        self.draw_header()
+        # Position cursor at the start of scrolling zone
+        print(f"\033[{self.HEADER_SIZE + 1};1H", end="", flush=True)
+
+    def stop(self):
+        """Restores the terminal to its original state."""
+        self.is_active = False
+        # Exit alternate screen, reset scrolling region, show cursor
+        print("\033[?1049l\033[?25h\033[r", end="", flush=True)
+
+    def draw_header(self):
+        """Draws the fixed branding and metrics header."""
+        from colorama import Fore, Style
+        # Save cursor position
+        print("\033[s", end="")
+        # Move to top-left
+        print("\033[1;1H", end="")
+        
+        # 1. Print Banner (Condensed to 7 lines)
+        banner = rf"""{Fore.CYAN}{Style.BRIGHT}  _____                      _____                         _ _ 
+ |_   _|                    /  __ \                       (_) |
+   | |  _ __ ___  _ __      | /  \/ ___  _   _ _ __   ___ _ | |
+   | | | '__/ _ \| '_ \     | |    / _ \| | | | '_ \ / __| | | |
+  _| |_| | | (_) | | | |    | \__/\ (_) | |_| | | | | (__| | | |
+  \___/|_|  \___/|_| |_|     \____/\___/ \__,_|_| |_|\___|_|_|
+{Fore.GREEN}  ============================================================={Style.RESET_ALL}"""
+        print(banner)
+        
+        # 2. Print Credit & Stats
+        uptime = int(time.time() - self.simulation.start_time) if hasattr(self.simulation, 'start_time') else 0
+        minutes, seconds = divmod(uptime, 60)
+        
+        conch_owner = self.heartbeat.conch.owner or "OPEN CHANNEL"
+        conch_color = Fore.GREEN if conch_owner == "OPEN CHANNEL" else Fore.YELLOW
+        
+        metrics = f"""{Fore.WHITE}  CREATED & CONCEPTUALIZED BY: {Fore.CYAN}{Style.BRIGHT}HARDIK RAWAT{Style.NORMAL}
+{Fore.GREEN}  =============================================================
+{Fore.WHITE}  STATUS: {Fore.GREEN}ONLINE{Fore.WHITE} | UPTIME: {Fore.YELLOW}{minutes:02d}:{seconds:02d}{Fore.WHITE} | TENSION: {Fore.RED}{int(self.heartbeat.tension)}%{Style.RESET_ALL}
+{Fore.WHITE}  CONCH: {conch_color}{conch_owner}{Style.RESET_ALL}
+{Fore.GREEN}  =============================================================
+"""
+        print(metrics, end="")
+        
+        # Restore cursor position
+        print("\033[u", end="", flush=True)
+
+    def log_event(self, message: str, level: str = "INFO"):
+        """Prints a log message into the scrolling region."""
+        if not self.is_active:
+            print(message)
+            return
+
+        from colorama import Fore, Style
+        
+        # Map levels to protocol labels and colors
+        color = Fore.WHITE
+        label = "LOG"
+        
+        if "AGENT_SPEAK" in message or "bridge_events" in message:
+            color = Fore.CYAN
+            label = "ACT"
+        elif "PHYSICS" in message or "STAT_UPDATE" in message:
+            color = Fore.GREEN
+            label = "PROT"
+        elif "LLM" in message:
+            color = Fore.MAGENTA
+            label = "EXE"
+        elif level == "ERROR":
+            color = Fore.RED
+            label = "ERR"
+        elif level == "WARNING":
+            color = Fore.YELLOW
+            label = "WARN"
+
+        # Format: [HH:MM:SS] [LABEL] Content
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        prefix = f"{Style.DIM}[{timestamp}]{Style.NORMAL} {Style.BRIGHT}{color}[{label}]{Style.RESET_ALL} "
+        
+        # Move cursor to last line to force scrolling within the region if needed
+        # We use HEADER_SIZE+1 to ensure we are below the banner
+        # Standard logging just prints and the terminal handles the defined scroll region.
+        # But we must ensure the cursor isn't in the header area.
+        print(f"{prefix}{message}")
+
+tui_monitor: Optional[TUIManager] = None
+
 # --- LOGGING INFRASTRUCTURE ---
 
 class WebSocketLogHandler(logging.Handler):
@@ -401,11 +560,12 @@ class WebSocketLogHandler(logging.Handler):
             if len(SystemLogger.log_buffer) > 1000:
                 SystemLogger.log_buffer.pop(0)
 
+            # Route to TUI if active
+            if tui_monitor and tui_monitor.is_active:
+                tui_monitor.log_event(record.getMessage(), record.levelname)
+
             # Broadcast if event loop is running
             if manager:
-                # We need to schedule this on the main loop
-                # If we are in the main loop, we can await it? No, emit is sync.
-                # We must use create_task/run_coroutine_threadsafe
                 try:
                     loop = asyncio.get_running_loop()
                     if loop.is_running():
@@ -415,7 +575,6 @@ class WebSocketLogHandler(logging.Handler):
                              "level": record.levelname
                          }))
                 except RuntimeError:
-                    # Initial setup might happen before loop is running
                     pass
 
         except Exception:
@@ -425,14 +584,23 @@ class WebSocketLogHandler(logging.Handler):
 # Remove default basicConfig handlers
 logging.getLogger().handlers = []
 
-# 1. Terminal Handler (Formatted)
+# 1. Terminal Output is handled by TUIManager when active, 
+# otherwise we use a standard stream handler during startup.
 term_handler = logging.StreamHandler()
 term_handler.setLevel(logging.INFO)
 term_formatter = logging.Formatter("[%(asctime)s] [%(name)s] > %(message)s", datefmt="%H:%M:%S")
 term_handler.setFormatter(term_formatter)
 logging.getLogger().addHandler(term_handler)
 
-# 2. WebSocket Handler (The Watchdog Bridge)
+# 2. File Handler (The Audit Log)
+os.makedirs("logs", exist_ok=True)
+file_handler = logging.FileHandler("logs/latest.log", mode="a")
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter("[%(asctime)s] [%(name)s] [%(levelname)s] > %(message)s")
+file_handler.setFormatter(file_formatter)
+logging.getLogger().addHandler(file_handler)
+
+# 3. WebSocket Handler (The Watchdog Bridge)
 ws_handler = WebSocketLogHandler()
 ws_handler.setLevel(logging.INFO) # Capture everything INFO and above
 logging.getLogger().addHandler(ws_handler)
@@ -485,8 +653,7 @@ async def keepalive_task():
         await asyncio.sleep(5)
         
         # Calculate Uptime
-        uptime_delta = datetime.datetime.now() - simulation.start_time
-        uptime_seconds = int(uptime_delta.total_seconds())
+        uptime_seconds = int(time.time() - simulation.start_time)
         
         # System Stats Payload (Minimalistic)
         heartbeat_payload = {
@@ -501,12 +668,13 @@ async def keepalive_task():
         
         if manager:
             await manager.broadcast(heartbeat_payload)
+            
+        # Refresh TUI Header
+        if tui_monitor and tui_monitor.is_active:
+            tui_monitor.draw_header()
 
-from contextlib import asynccontextmanager
 
-@asynccontextmanager
-
-async def _handle_end_session():
+async def trigger_dream_phase():
     """
     Fix #2: Full end session + dream phase restoration.
     Pauses OODA loops, streams dream for each agent, reviews agendas, resumes.
@@ -754,7 +922,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Check for end session
                 if user_text.lower().strip().rstrip('.') in ["end session", "exit", "quit"]:
                     # Fix #2: Full dream phase restoration
-                    await _handle_end_session()
+                    await trigger_dream_phase()
                     continue
 
                 # PHASE 3: EVENT DRIVEN
@@ -838,26 +1006,127 @@ async def force_release_conch():
     })
     return {"status": f"Conch released from {owner}"}
 
+def clear_terminal():
+    """Clears the terminal screen for a clean UI experience."""
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def print_banner():
+    """Prints the Iron Council branding banner with credit to Hardik Rawat."""
+    from colorama import Fore, Style, init
+    init(autoreset=True)
+    
+    # We use a raw string for the ASCII art to avoid escape sequence warnings
+    banner_template = r"""
+{Fore.CYAN}{Style.BRIGHT}  _____                      _____                         _ _ 
+ |_   _|                    /  __ \                       (_) |
+   | |  _ __ ___  _ __      | /  \/ ___  _   _ _ __   ___ _ | |
+   | | | '__/ _ \| '_ \     | |    / _ \| | | | '_ \ / __| | | |
+  _| |_| | | (_) | | | |    | \__/\ (_) | |_| | | | | (__| | | |
+  \___/|_|  \___/|_| |_|     \____/\___/ \__,_|_| |_|\___|_|_|
+                                                               
+{Fore.YELLOW}  [ IRON COUNCIL v2.0 ] - Autonomous Multi-Agent Simulation
+{Fore.GREEN}  =============================================================
+{Fore.WHITE}  CREATED & CONCEPTUALIZED BY: {Fore.CYAN}{Style.BRIGHT}HARDIK RAWAT{Style.NORMAL}
+{Fore.GREEN}  =============================================================
+"""
+    print(banner_template.format(Fore=Fore, Style=Style))
+
 def run_cli():
     """Entry point for the 'iron-council' console command."""
     import uvicorn
     import sys
+    import webbrowser
+    import time
+    from colorama import Fore, Style
     
-    # Check for keywords to run secondary tools
+    # Check for keywords to run secondary tools directly
     if len(sys.argv) > 1:
-        if sys.argv[1] == "setup":
+        cmd = sys.argv[1].lower()
+        if cmd == "setup":
             from setup_env import setup_env
             setup_env(force="--force" in sys.argv)
             return
-        elif sys.argv[1] == "reset":
+        elif cmd == "reset":
             from reset import reset_agents, wipe_memory
             reset_agents()
             wipe_memory()
             return
+        elif cmd in ["start", "run"]:
+            pass # Continue to start server
+        else:
+            print(f"{Fore.RED}Unknown command: {cmd}")
+            print(f"{Fore.YELLOW}Use 'iron-council' for interactive mode, or 'setup'/'reset' for maintenance.")
+            return
 
-    print("🚀 Starting Iron Council Server...")
-    # Assume we are running from the package context
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    # Clear terminal before showing banner for the "Premium" experience
+    clear_terminal()
+    print_banner()
+    
+    # Interactive Mode if no command or 'start'
+    if len(sys.argv) <= 1:
+        while True:
+            # Clear terminal before showing menu (except first run which is already cleared)
+            clear_terminal() 
+            print_banner()
+            
+            print(f"{Fore.WHITE}Welcome to the Iron Council Interface.")
+            print(f"{Fore.CYAN}Select an action:")
+            print(f"{Fore.GREEN}  1. [START]  Launch Simulation Engine & Dashboard")
+            print(f"{Fore.YELLOW}  2. [SETUP]  Configure Environment & Keys")
+            print(f"{Fore.RED}  3. [RESET]  Wipe Memory & Reset Agent States")
+            print(f"{Fore.WHITE}  4. [EXIT]   Close")
+            
+            choice = input(f"\n{Fore.CYAN}Council > {Style.RESET_ALL}").strip()
+            
+            if choice == "1":
+                break # Continue to start server
+            elif choice == "2" or choice.lower() == "setup":
+                from setup_env import setup_env
+                setup_env()
+                input(f"\n{Fore.GREEN}Setup complete. Press Enter to return to menu...")
+                continue
+            elif choice == "3" or choice.lower() == "reset":
+                confirm = input(f"{Fore.RED}Are you sure you want to wipe all state? (y/N): ").lower()
+                if confirm == 'y':
+                    from reset import reset_agents, wipe_memory
+                    reset_agents()
+                    wipe_memory(no_confirm=True)
+                    input(f"\n{Fore.GREEN}Reset complete. Press Enter to return to menu...")
+                continue
+            else:
+                print("Exiting...")
+                return
+
+    # Start Server logic
+    print(f"🚀 {Fore.CYAN}Starting Iron Council Simulation Engine...")
+    
+    # Auto-open browser
+    def open_browser():
+        time.sleep(3)  # Wait for server to initialize
+        url = "http://localhost:8000"
+        # We don't print this in TUI mode to keep it clean, 
+        # but for non-TUI it's fine.
+        if not (tui_monitor and tui_monitor.is_active):
+            print(f"🌐 {Fore.GREEN}Opening Dashboard: {url}")
+        webbrowser.open(url)
+
+    import threading
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    # Inform app that we are in CLI/TUI mode
+    app.cli_mode = True
+    
+    # Start TUI Monitor
+    if tui_monitor:
+        tui_monitor.start()
+
+    try:
+        # Run Uvicorn
+        # We keep reload=False for TUI stability
+        uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False, log_level="warning")
+    finally:
+        if tui_monitor and tui_monitor.is_active:
+            tui_monitor.stop()
 
 # --- LOGGING ENDPOINTS ---
 @app.get("/logs/download")

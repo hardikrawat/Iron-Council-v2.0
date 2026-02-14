@@ -63,6 +63,12 @@ The "Law of Consequences" (`core/physics.py` & `core/physics_system.py`).
     - **Reaction Spiral Prevention**: Physics updates *only* change internal state. They never trigger an immediate output, preventing infinite loops.
     - **Transcript Safety**: The Physics System maintains the canonical session log used for dreaming.
 
+### 5. Iron Monitor (TUI)
+The `TUIManager` (`server.py`) provides a professional production interface.
+- **Fixed Header**: Uses ANSI escapes to pin branding and live metrics (Tension, Conch, Uptime) at the top.
+- **Scrolling Buffer**: Maps a sub-region of the terminal for real-time protocol logs.
+- **Alternate Buffer**: Redirects output to a secondary screen buffer to keep the user's primary terminal scrollback clean.
+
 ## Data Persistence: The Soul
 Agents are persistent entities (`core/schema.py`). Their state is saved to `agents/<name>/soul_state.json` after every interaction.
 - **Core Values**: Immutable beliefs (e.g., "War is necessary").

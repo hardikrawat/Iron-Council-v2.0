@@ -41,6 +41,11 @@ class OODALoop:
         self._drain_gate = False # FIX BUG-C: Gate to suppress speech after drain timeout
         self._cycle_complete = asyncio.Event()
         self._cycle_complete.set()  # Initially "not in a cycle"
+        
+        # FIX PERF-04: State tracking for trigger persistence
+        self._current_decision_trigger = None 
+        self._cached_context = None # (Full context string)
+        self._cached_situation = None
 
         
         # Subscribe to relevant events with type injection
@@ -202,6 +207,13 @@ class OODALoop:
             # Randomized sleep to desynchronize agents
             await asyncio.sleep(random.uniform(2.0, 4.0))
 
+    def _reset_cycle_state(self):
+        """Clears persistent state after successful action or on major reset."""
+        self._current_decision_trigger = None
+        self._cached_context = None
+        self._cached_situation = None
+        self._waiting_for_physics = False
+
     async def wait_for_drain(self, timeout: float = 15.0):
         """FIX BUG-3: Wait for the current in-flight cycle to complete.
         Called by server before dream phase to ensure clean transition."""
@@ -329,13 +341,18 @@ class OODALoop:
 
         # 4. DECIDE (LLM)
         
-        # FIX PERF-02: Move Memory Recall BEFORE Lock Acquisition
-        # We perform the heavy vector search here, while we are still "thinking" and not holding the floor.
-        memory_context_str = ""
-        context_str = self._format_context(recent_events[-5:])
-        situation = self._extract_situation(recent_events)
-        
-        if should_think:  # Only recall if we actually intend to speak
+        # FIX PERF-02/04: Move Memory Recall BEFORE Lock Acquisition & Cache results
+        # We only perform heavy search/formatting if this is a NEW trigger or if situation changed.
+        # FIX BUG: Ensure we only reuse cache if the TRIGGER is identical
+        if self._current_decision_trigger == decision_trigger and self._cached_context:
+             full_context_str = self._cached_context
+             situation = self._cached_situation
+             logger.info(f"{self.agent.soul.name} [OODA: DECIDE] -> Reusing cached context for ongoing trigger.")
+        else:
+            memory_context_str = ""
+            context_str = self._format_context(recent_events[-5:])
+            situation = self._extract_situation(recent_events)
+            
             try:
                 await self.event_bus.publish(EventType.AGENT_STATUS, {
                     "agent": self.agent.agent_name,
@@ -356,6 +373,13 @@ class OODALoop:
             except Exception as mem_err:
                 logger.warning(f"Memory recall failed for {self.agent.soul.name}: {mem_err}")
 
+            full_context_str = f"{memory_context_str}Recent events:\n{context_str}"
+            
+            # Cache for retries
+            self._current_decision_trigger = decision_trigger
+            self._cached_context = full_context_str
+            self._cached_situation = situation
+
         # Attempt to acquire lock logic
 
         # Always broadcast intention to acquire before blocking
@@ -372,11 +396,7 @@ class OODALoop:
             try:
                 # 5. ACT
                 # Fix #3: Build readable context and extract chairman message as situation
-                # FIX PERF-02: Use pre-calculated memory context
-                full_context_str = f"{memory_context_str}Recent events:\n{context_str}"
-                
-                # (Memory recall removed from here)
-                # (Memory recall removed from here)
+                # FIX PERF-02/04: Use pre-calculated/cached context
                 
                 # FIX BUG-B: Use publish_sync to ensure status update completes before blocking call
                 await self.event_bus.publish_sync(EventType.AGENT_STATUS, {
@@ -431,6 +451,9 @@ class OODALoop:
                         self._last_processed_world_event = dcontent
                     elif dtype == "AGENT":
                         self._last_processed_agent_event = dcontent
+                
+                # Clear persistent state after successful completion
+                self._reset_cycle_state()
                 
                 self.heartbeat.register_activity()
                 

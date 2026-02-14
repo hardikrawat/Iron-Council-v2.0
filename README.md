@@ -159,7 +159,7 @@ Run the Iron Council as a standalone, polished application.
     ```bash
     iron-council
     ```
-    Open `http://localhost:8000` in your browser.
+    The system will launch the **Iron Monitor Dashboard** — a professional TUI with a fixed header for branding/metrics and a dedicated scrolling event zone. It will also automatically open your default browser to `http://localhost:8000`.
 
 ### Option B: Development Mode (Hot Reload)
 
@@ -183,15 +183,18 @@ The `dev_start.sh` script supports automation flags:
 | `--reconfigure` | | Force re-runs setup |
 | `--help` | `-h` | Shows help |
 
-### Commands
+### Commands & Controls
+
+The `iron-council` global command is the primary interface for the simulation.
 
 | Command | Effect |
 |---------|--------|
-| *Type normally* | Address the council — all agents respond |
-| `end session` | Trigger the Dream Phase — agents reflect and consolidate memory |
-| `iron-council` | Start the production server (Must be run from project root) |
-| `iron-council setup` | Run the setup wizard |
-| `iron-council reset` | Factory reset via CLI |
+| `iron-council` | **Interactive Mode**: Shows branding banner and guides you through Start, Setup, or Reset. |
+| `iron-council start` | Bypasses the menu and starts the server immediately. |
+| `iron-council setup` | Runs the interactive environment/API setup wizard. |
+| `iron-council reset` | Performs a factory reset (wipes memory & agent states). |
+| *Type in chat* | Address the council members via the Chairman's interface. |
+| `end session` | Triggers the **Dream Phase** (Agents sleep and consolidate memory). |
 | `./dev_start.sh --kill` | Clean start (Dev Mode) |
 | `./dev_start.sh --reset` | Combo start (Dev Mode) |
 
@@ -401,6 +404,13 @@ This forces all old processes to close.
 ### "Illegal instruction" (Python 3.14 / ChromaDB)
 If you are using Python 3.14 (bleeding edge), you may crash on startup due to `onnxruntime` compatibility.
 **Fix:** Please downgrade to Python 3.11 or 3.12 for maximum stability.
+
+### "ModuleNotFoundError: No module named 'server'"
+This occurs if a global version of `iron-council` (e.g., in `/opt/homebrew/bin/`) is shadowing your local installation.
+**Fix:**
+1. Ensure your virtual environment is active: `source venv/bin/activate`
+2. Run using the local path: `./venv/bin/iron-council`
+3. Or run as a module: `python -m server`
 
 ### "SQLite version mismatch"
 ChromaDB requires SQLite >= 3.35. If you are on an old Linux distro, you may need to upgrade `sqlite3` manually or use a Docker container.

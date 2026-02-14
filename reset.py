@@ -116,11 +116,15 @@ def reset_agents():
         else:
             print(f"⚠️ Agent folder '{folder_name}' not found in {agents_dir}/.")
 
-def wipe_memory():
+def wipe_memory(no_confirm: bool = False):
     """Optionally wipes the vector database (db/ folder)."""
     db_path = "db"
     if os.path.exists(db_path):
-        choice = input("⚠️ Wipe all memories (Vector DB)? (y/n): ").lower()
+        if no_confirm:
+            choice = 'y'
+        else:
+            choice = input("⚠️ Wipe all memories (Vector DB)? (y/n): ").lower()
+            
         if choice == 'y':
             shutil.rmtree(db_path)
             print("🧠 Memories wiped.")
