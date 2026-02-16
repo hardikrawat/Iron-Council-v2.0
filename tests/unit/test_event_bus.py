@@ -50,7 +50,9 @@ class TestEventBusPubSub:
         event_bus.subscribe(EventType.AGENT_SPEAK, handler_a)
         event_bus.subscribe(EventType.AGENT_SPEAK, handler_b)
         asyncio.get_event_loop().run_until_complete(
-            event_bus.publish(EventType.AGENT_SPEAK, {"agent": "ares", "content": "hello"})
+            event_bus.publish(
+                EventType.AGENT_SPEAK, {"agent": "ares", "content": "hello"}
+            )
         )
         assert len(received_a) == 1
         assert len(received_b) == 1
@@ -103,14 +105,16 @@ class TestEventTypesCoverage:
     def test_core_event_types_exist(self):
         """Architecture mandates these core event types."""
         required_types = [
-            "WORLD_EVENT",      # Chairman messages
-            "AGENT_SPEAK",      # Agent responses
-            "AGENT_STATUS",     # OODA phase updates
-            "SYSTEM_TICK",      # Heartbeat ticks
+            "WORLD_EVENT",  # Chairman messages
+            "AGENT_SPEAK",  # Agent responses
+            "AGENT_STATUS",  # OODA phase updates
+            "SYSTEM_TICK",  # Heartbeat ticks
             "SILENCE_WARNING",  # Entropy alerts
-            "MEMORY_ACCESS",    # ChromaDB reads/writes
-            "LLM_ACTIVITY",     # LLM calls
+            "MEMORY_ACCESS",  # Remote memory reads/writes
+            "LLM_ACTIVITY",  # LLM calls
         ]
         existing_types = [e.name for e in EventType]
         for rt in required_types:
-            assert rt in existing_types, f"EventType.{rt} missing — required by architecture"
+            assert (
+                rt in existing_types
+            ), f"EventType.{rt} missing — required by architecture"

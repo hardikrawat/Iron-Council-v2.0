@@ -42,54 +42,15 @@ show_help() {
     echo "  -o, --ollama-restart  Restart the Ollama service to ensure a fresh model state."
     echo "  -b, --open            Automatically open the UI in the default browser."
     echo "  -s, --stop            Kill all existing backend and frontend processes and exit."
-    echo "  --reconfigure         Force re-run of the environment setup interactive script."
+    echo "  --turso-url           Update the Turso DB URL in .env."
+    echo "  --turso-token         Update the Turso DB Token in .env."
     echo "  -h, --help            Show this help message."
     echo ""
     echo "Example:"
     echo "  ./dev_start.sh --kill --reset --open"
+    echo "  ./dev_start.sh --turso-url=https://xyz.turso.io --turso-token=... "
     echo ""
 }
-
-# -----------------------------------------------------------------------------
-# Argument Parsing
-# -----------------------------------------------------------------------------
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        -k|--kill) DO_KILL=true ;;
-        -r|--reset) DO_RESET=true ;;
-        -o|--ollama-restart) DO_OLLAMA_RESTART=true ;;
-        -b|--open) DO_OPEN_BROWSER=true ;;
-        -s|--stop) DO_STOP=true ;;
-        --reconfigure) DO_RECONFIGURE=true ;;
-        -h|--help) show_help; exit 0 ;;
-        *) echo "Unknown parameter passed: $1"; show_help; exit 1 ;;
-    esac
-    shift
-done
-
-
-echo -e "${BLUE}--- IRON COUNCIL SYSTEM INITIALIZATION ---${NC}"
-
-# Stop Application (if requested)
-if [ "$DO_STOP" = true ]; then
-    echo -e "${YELLOW}[ACTION] Stopping all Iron Council processes...${NC}"
-    lsof -t -i:8000 | xargs kill -9 2>/dev/null
-    lsof -t -i:5173 | xargs kill -9 2>/dev/null
-    echo -e "${GREEN}✔ Systems stopped.${NC}"
-    exit 0
-fi
-
-# --- LOGGING SETUP ---
-mkdir -p logs
-LOG_FILE="logs/session_$(date +%Y%m%d_%H%M%S).log"
-# Create 'latest.log' symlink for easy access
-ln -sf "$(pwd)/$LOG_FILE" "$(pwd)/logs/latest.log"
-
-echo "Recording full session logs to: $LOG_FILE"
-
-# Redirect all stdout/stderr to the log file via tee, keeping it on screen too
-exec > >(tee -a "$LOG_FILE") 2>&1
-
 
 # Trap to kill background processes on exit
 trap 'kill $(jobs -p)' EXIT
@@ -102,6 +63,73 @@ elif [ -f "./venv/bin/python" ]; then
 else
     PYTHON_CMD="python3"
 fi
+
+# -----------------------------------------------------------------------------
+# Argument Parsing
+# -----------------------------------------------------------------------------
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -k|--kill) DO_KILL=true ;;
+        -r|--reset) DO_RESET=true ;;
+        -o|--ollama-restart) DO_OLLAMA_RESTART=true ;;
+        -b|--open) DO_OPEN_BROWSER=true ;;
+        -s|--stop) DO_STOP=true ;;
+        --reconfigure) DO_RECONFIGURE=true ;;
+        --turso-url=*) 
+            TURSO_URL="${1#*=}"
+            if [[ "$TURSO_URL" == libsql://* ]]; then
+                TURSO_URL="${TURSO_URL/libsql:\/\//https:\/\/}"
+            fi
+            $PYTHON_CMD -c "
+import os
+val = \"$TURSO_URL\"
+lines = open('.env').readlines() if os.path.exists('.env') else []
+if lines and not lines[-1].endswith('\n'): lines[-1] += '\n'
+new_lines = []
+found = False
+for line in lines:
+    if line.startswith('TURSO_DB_URL='):
+        new_lines.append(f'TURSO_DB_URL={val}\n')
+        found = True
+    else:
+        new_lines.append(line)
+if not found:
+    new_lines.append(f'TURSO_DB_URL={val}\n')
+with open('.env', 'w') as f:
+    f.writelines(new_lines)
+"
+            echo -e "${GREEN}✔ Updated TURSO_DB_URL in .env${NC}"
+            ;;
+        --turso-token=*)
+            TURSO_TOKEN="${1#*=}"
+            $PYTHON_CMD -c "
+import os
+val = \"$TURSO_TOKEN\"
+lines = open('.env').readlines() if os.path.exists('.env') else []
+if lines and not lines[-1].endswith('\n'): lines[-1] += '\n'
+new_lines = []
+found = False
+for line in lines:
+    if line.startswith('TURSO_DB_TOKEN='):
+        new_lines.append(f'TURSO_DB_TOKEN={val}\n')
+        found = True
+    else:
+        new_lines.append(line)
+if not found:
+    new_lines.append(f'TURSO_DB_TOKEN={val}\n')
+with open('.env', 'w') as f:
+    f.writelines(new_lines)
+"
+            echo -e "${GREEN}✔ Updated TURSO_DB_TOKEN in .env${NC}"
+            ;;
+        -h|--help) show_help; exit 0 ;;
+        *) echo "Unknown parameter passed: $1"; show_help; exit 1 ;;
+    esac
+    shift
+done
+
+
+echo -e "${BLUE}--- IRON COUNCIL SYSTEM INITIALIZATION ---${NC}"
 
 # -----------------------------------------------------------------------------
 # 1. Pre-flight Checks & Actions
@@ -137,14 +165,6 @@ if [ "$DO_RECONFIGURE" = true ]; then
 elif [ ! -f ".env" ]; then
     echo "⚠️  No configuration found."
     $PYTHON_CMD setup_env.py
-fi
-
-# Connectivity Check (ChromaDB Warning)
-if [ ! -d "db" ] && ! ping -c 1 google.com &> /dev/null; then
-    echo -e "${RED}⚠️  OFFLINE WARNING: First-run detected without internet connection.${NC}"
-    echo -e "${YELLOW}ChromaDB needs to download the embedding model (all-MiniLM-L6-v2) (~80MB).${NC}"
-    echo -e "${YELLOW}Startup may fail if you are completely offline. Proceeding anyway...${NC}"
-    sleep 3
 fi
 
 # Reset (if requested)

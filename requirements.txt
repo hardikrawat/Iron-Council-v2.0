@@ -6,8 +6,9 @@
 openai>=1.0.0              # OpenAI GPT API client
 anthropic>=0.18.0          # Anthropic Claude API client
 google-genai>=0.4.0        # Google Gemini API client (new SDK)
-chromadb>=0.4.22           # Vector database for subjective memory
 pydantic>=2.0.0            # Data validation and schema enforcement
+libsql-client>=0.3.1       # Turso DB client
+googlesearch-python>=1.2.3
 
 # --- Utilities ---
 requests>=2.31.0           # HTTP library for local LLM (Ollama)

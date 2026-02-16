@@ -23,24 +23,22 @@ class TestDreamStreamingProtocol:
         Payload: { type: "stream_start", agent_id }
         Triggers: Clearing previous stream buffer in SubconsciousLog.
         """
-        payload = {
-            "type": "stream_start",
-            "agent_id": "general_ares"
-        }
+        payload = {"type": "stream_start", "agent_id": "general_ares"}
         assert payload["type"] == "stream_start"
-        assert "agent_id" in payload, "Sidebar needs agent_id to route stream to correct log container"
+        assert (
+            "agent_id" in payload
+        ), "Sidebar needs agent_id to route stream to correct log container"
 
     def test_stream_chunk_shape(self):
         """
         Payload: { type: "stream_chunk", Chunk: "text fragment..." }
         Triggers: Appending text to active stream buffer.
         """
-        payload = {
-            "type": "stream_chunk",
-            "Chunk": "The war is inevitable..."
-        }
+        payload = {"type": "stream_chunk", "Chunk": "The war is inevitable..."}
         assert payload["type"] == "stream_chunk"
-        assert "Chunk" in payload, "Frontend expects 'Chunk' (capitalized) — SubconsciousLog line 512"
+        assert (
+            "Chunk" in payload
+        ), "Frontend expects 'Chunk' (capitalized) — SubconsciousLog line 512"
 
     def test_stream_end_shape(self):
         """
@@ -63,27 +61,26 @@ class TestFinalDreamPayload:
         The final 'dream' message persists the full dream to the log history.
         """
         import datetime
+
         soul = SoulFactory.ares()
-        
+
         dream_obj = {
             "id": "dream_123",
             "timestamp": datetime.datetime.now().isoformat(),
             "content": "I dreamt of total victory.",
             "emotion": "triumphant",
-            "agent_name": soul.name
+            "agent_name": soul.name,
         }
-        
-        payload = {
-            "type": "dream",
-            "agent_id": "general_ares",
-            "dream": dream_obj
-        }
-        
+
+        payload = {"type": "dream", "agent_id": "general_ares", "dream": dream_obj}
+
         assert payload["type"] == "dream"
         assert "agent_id" in payload
         assert "dream" in payload
-        
+
         d = payload["dream"]
-        assert "content" in d, "Missing 'content' — SubconsciousLog displays the dream text"
+        assert (
+            "content" in d
+        ), "Missing 'content' — SubconsciousLog displays the dream text"
         assert "timestamp" in d, "Missing 'timestamp' — SubconsciousLog sorts by time"
         assert "agent_name" in d, "Missing 'agent_name' — SubconsciousLog attribute"

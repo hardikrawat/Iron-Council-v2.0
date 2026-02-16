@@ -27,13 +27,17 @@ class TestSystemStatePayload:
             "type": "system_state_update",
             "data": {
                 "tension": 45,
-                "conch": {"owner": "general_ares", "expires_in": 12}
-            }
+                "conch": {"owner": "general_ares", "expires_in": 12},
+            },
         }
 
         assert payload["type"] == "system_state_update"
-        assert "tension" in payload["data"], "Missing 'tension' — MissionStatus ENTROPY bar needs it"
-        assert "conch" in payload["data"], "Missing 'conch' — MissionStatus lock display needs it"
+        assert (
+            "tension" in payload["data"]
+        ), "Missing 'tension' — MissionStatus ENTROPY bar needs it"
+        assert (
+            "conch" in payload["data"]
+        ), "Missing 'conch' — MissionStatus lock display needs it"
         assert isinstance(payload["data"]["tension"], (int, float))
 
     def test_conch_structure(self):
@@ -43,7 +47,9 @@ class TestSystemStatePayload:
         """
         conch = {"owner": "general_ares", "expires_in": 8}
         assert "owner" in conch, "Missing 'owner' — MissionStatus displays lock holder"
-        assert "expires_in" in conch, "Missing 'expires_in' — MissionStatus shows auto-revoke countdown"
+        assert (
+            "expires_in" in conch
+        ), "Missing 'expires_in' — MissionStatus shows auto-revoke countdown"
 
     def test_conch_null_when_free(self):
         """
@@ -52,10 +58,7 @@ class TestSystemStatePayload:
         """
         payload = {
             "type": "system_state_update",
-            "data": {
-                "tension": 10,
-                "conch": None
-            }
+            "data": {"tension": 10, "conch": None},
         }
         assert payload["data"]["conch"] is None
 
@@ -72,16 +75,16 @@ class TestHeartbeatPulsePayload:
         """Simulate keepalive_task payload (server.py lines 309-316)."""
         payload = {
             "type": "heartbeat_pulse",
-            "stats": {
-                "uptime": 3661,
-                "mem": "64.2MB",
-                "status": "NORMAL"
-            }
+            "stats": {"uptime": 3661, "mem": "64.2MB", "status": "NORMAL"},
         }
 
         assert payload["type"] == "heartbeat_pulse"
-        assert "uptime" in payload["stats"], "Missing 'uptime' — MissionStatus clock needs it"
-        assert "mem" in payload["stats"], "Missing 'mem' — WatchdogTerminal footer displays it"
+        assert (
+            "uptime" in payload["stats"]
+        ), "Missing 'uptime' — MissionStatus clock needs it"
+        assert (
+            "mem" in payload["stats"]
+        ), "Missing 'mem' — WatchdogTerminal footer displays it"
         assert "status" in payload["stats"]
         assert isinstance(payload["stats"]["uptime"], int)
 
@@ -98,19 +101,23 @@ class TestActivityEventPayload:
         payload = {
             "type": "activity_event",
             "event": "DISK",
-            "data": {"agent": "general_ares", "operation": "recall"}
+            "data": {"agent": "general_ares", "operation": "recall"},
         }
         assert payload["type"] == "activity_event"
-        assert payload["event"] == "DISK", "MEMORY_ACCESS must map to 'DISK' — HardwareMonitor LED name"
+        assert (
+            payload["event"] == "DISK"
+        ), "MEMORY_ACCESS must map to 'DISK' — HardwareMonitor LED name"
 
     def test_llm_activity_event(self):
         """Simulate bridge_activity_event for LLM_ACTIVITY (server.py line 355)."""
         payload = {
             "type": "activity_event",
             "event": "LLM",
-            "data": {"agent": "general_ares", "model": "qwen2.5:7b"}
+            "data": {"agent": "general_ares", "model": "qwen2.5:7b"},
         }
-        assert payload["event"] == "LLM", "LLM_ACTIVITY must map to 'LLM' — HardwareMonitor LED name"
+        assert (
+            payload["event"] == "LLM"
+        ), "LLM_ACTIVITY must map to 'LLM' — HardwareMonitor LED name"
 
 
 class TestSystemLogPayload:
@@ -125,14 +132,12 @@ class TestSystemLogPayload:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] [PHYSICS] > Applied stat changes to General Ares"
 
-        payload = {
-            "type": "system_log",
-            "content": log_entry,
-            "level": "INFO"
-        }
+        payload = {"type": "system_log", "content": log_entry, "level": "INFO"}
 
         assert payload["type"] == "system_log"
-        assert "content" in payload, "Missing 'content' — WatchdogTerminal displays this"
+        assert (
+            "content" in payload
+        ), "Missing 'content' — WatchdogTerminal displays this"
         assert "level" in payload, "Missing 'level' — WatchdogTerminal filters by level"
         assert isinstance(payload["content"], str)
 
@@ -143,9 +148,12 @@ class TestSystemLogPayload:
         Log entry must match this format for proper coloring.
         """
         import re
+
         log_entry = "[14:30:22] [PHYSICS] > Applied stat changes to General Ares"
-        match = re.match(r'\[(.*?)\] \[(.*?)\] > (.*)', log_entry)
-        assert match is not None, f"Log format not parseable by frontend regex: {log_entry}"
+        match = re.match(r"\[(.*?)\] \[(.*?)\] > (.*)", log_entry)
+        assert (
+            match is not None
+        ), f"Log format not parseable by frontend regex: {log_entry}"
         timestamp, module, message = match.groups()
         assert len(timestamp) > 0
         assert len(module) > 0
@@ -170,8 +178,8 @@ class TestAgentStatusUpdatePayload:
                 "agent": "general_ares",
                 "status": "THINKING",
                 "details": "Evaluating military options",
-                "phase": "D"  # Decide phase of OODA
-            }
+                "phase": "D",  # Decide phase of OODA
+            },
         }
 
         assert payload["type"] == "agent_status_update"
@@ -195,8 +203,15 @@ class TestAgentStatusUpdatePayload:
         Per Frontend (AgentMonitor lines 16-20):
         Status values determine color coding.
         """
-        valid_statuses = ["IDLE", "THINKING", "ACTING", "WAITING_FOR_LOCK",
-                          "OBSERVING", "ORIENTING", "DECIDING"]
+        valid_statuses = [
+            "IDLE",
+            "THINKING",
+            "ACTING",
+            "WAITING_FOR_LOCK",
+            "OBSERVING",
+            "ORIENTING",
+            "DECIDING",
+        ]
         for status in valid_statuses:
             # Each must be a string the frontend recognizes
             assert isinstance(status, str)

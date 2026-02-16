@@ -31,7 +31,9 @@ class TestEventThroughput:
             await event_bus.publish(EventType.WORLD_EVENT, {"seq": i})
 
         await asyncio.sleep(0.1)
-        assert len(received) == 50, f"Expected 50 events, got {len(received)} — EventBus dropping events"
+        assert (
+            len(received) == 50
+        ), f"Expected 50 events, got {len(received)} — EventBus dropping events"
 
     @pytest.mark.anyio
     async def test_multi_type_concurrent_events(self, event_bus):
@@ -82,17 +84,17 @@ class TestCrossComponentEventFlow:
 
         async def world_handler(payload):
             chain_log.append("WORLD")
-            await event_bus.publish(EventType.AGENT_SPEAK, {
-                "agent": "general_ares",
-                "content": "Response to world event"
-            })
+            await event_bus.publish(
+                EventType.AGENT_SPEAK,
+                {"agent": "general_ares", "content": "Response to world event"},
+            )
 
         async def speak_handler(payload):
             chain_log.append("SPEAK")
-            await event_bus.publish(EventType.AGENT_STATUS, {
-                "agent": "general_ares",
-                "status": "STAT_UPDATE"
-            })
+            await event_bus.publish(
+                EventType.AGENT_STATUS,
+                {"agent": "general_ares", "status": "STAT_UPDATE"},
+            )
 
         async def status_handler(payload):
             chain_log.append("STATUS")

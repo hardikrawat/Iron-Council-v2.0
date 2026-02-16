@@ -30,13 +30,17 @@ class TestStatUpdatePayload:
             "type": "stat_update",
             "agent_id": "general_ares",
             "stats": soul.dynamic_stats.model_dump(),
-            "goals": [g.model_dump() for g in soul.goals]
+            "goals": [g.model_dump() for g in soul.goals],
         }
 
         assert stats_payload["type"] == "stat_update"
-        assert "agent_id" in stats_payload, "Missing 'agent_id' — App.jsx uses it to match agent"
+        assert (
+            "agent_id" in stats_payload
+        ), "Missing 'agent_id' — App.jsx uses it to match agent"
         assert "stats" in stats_payload, "Missing 'stats' — AgentMonitor displays these"
-        assert "goals" in stats_payload, "Missing 'goals' — AgentMonitor OBJ button uses these"
+        assert (
+            "goals" in stats_payload
+        ), "Missing 'goals' — AgentMonitor OBJ button uses these"
 
     def test_stats_has_all_five_fields(self):
         """
@@ -46,7 +50,13 @@ class TestStatUpdatePayload:
         soul = SoulFactory.ares()
         stats = soul.dynamic_stats.model_dump()
 
-        required = ["confidence", "paranoia", "loyalty_to_chairman", "stress_level", "energy"]
+        required = [
+            "confidence",
+            "paranoia",
+            "loyalty_to_chairman",
+            "stress_level",
+            "energy",
+        ]
         for field in required:
             assert field in stats, f"Missing stat '{field}' — AgentMonitor expects it"
 
@@ -60,8 +70,12 @@ class TestStatUpdatePayload:
         assert len(goals) > 0, "Agent has no goals — Architecture requires active goals"
         for goal in goals:
             assert "description" in goal, "Missing 'description' in goal"
-            assert "active" in goal, "Missing 'active' in goal — AgentMonitor filters by this"
-            assert "progress" in goal, "Missing 'progress' in goal — AgentMonitor shows progress bar"
+            assert (
+                "active" in goal
+            ), "Missing 'active' in goal — AgentMonitor filters by this"
+            assert (
+                "progress" in goal
+            ), "Missing 'progress' in goal — AgentMonitor shows progress bar"
             assert "priority" in goal, "Missing 'priority' in goal"
 
 
@@ -80,7 +94,7 @@ class TestRelationshipUpdatePayload:
         graph_payload = {
             "type": "relationship_update",
             "agent_id": "general_ares",
-            "relationships": soul.get_serializable_relationships()
+            "relationships": soul.get_serializable_relationships(),
         }
 
         assert graph_payload["type"] == "relationship_update"
@@ -100,9 +114,10 @@ class TestRelationshipUpdatePayload:
 
         dove_trust = rels.get("Diplomat Dove", {}).get("trust_score", None)
         assert dove_trust is not None, "Relationship with Diplomat Dove missing"
-        assert dove_trust < 0, \
-            f"Trust score for Dove = {dove_trust} — expected NEGATIVE. " \
+        assert dove_trust < 0, (
+            f"Trust score for Dove = {dove_trust} — expected NEGATIVE. "
             "Sign lost during serialization? Midas Paradox regression!"
+        )
 
     def test_relationship_has_hidden_agenda(self):
         """
@@ -110,8 +125,13 @@ class TestRelationshipUpdatePayload:
         This field must be serialized for the frontend.
         """
         soul = SoulFactory.ares()
-        soul.relationships["Diplomat Dove"].hidden_agenda = "Planning to undermine peace talks"
+        soul.relationships["Diplomat Dove"].hidden_agenda = (
+            "Planning to undermine peace talks"
+        )
         rels = soul.get_serializable_relationships()
 
         assert "hidden_agenda" in rels["Diplomat Dove"]
-        assert rels["Diplomat Dove"]["hidden_agenda"] == "Planning to undermine peace talks"
+        assert (
+            rels["Diplomat Dove"]["hidden_agenda"]
+            == "Planning to undermine peace talks"
+        )

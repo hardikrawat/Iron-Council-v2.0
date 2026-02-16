@@ -49,7 +49,7 @@ The v3.0 architecture splits the agent into two distinct systems: The **Software
 | **Training Engine** | **Unsloth (PyTorch)** | Ultra-fast fine-tuning during the "Sleep" phase. |
 | **Base Model** | `Llama-3-8B` / `Mistral` | The shared "reptilian brain" (Language & Logic). |
 | **Agent Brains** | **LoRA Adapters** | ~50MB files representing individual "Souls" (Biases). |
-| **Memory** | **ChromaDB** | Vector storage for subjective episodic recall. |
+| **Memory** | **Turso DB** | Vector storage for subjective episodic recall. |
 | **Orchestrator** | Python 3.11+ | Manages the Event Bus, Physics, and Training triggers. |
 
 ---

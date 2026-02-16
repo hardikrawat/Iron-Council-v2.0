@@ -57,9 +57,11 @@ class TestProviderRouting:
         """Per Architecture: Dream phase uses streaming for real-time diary generation."""
         llm = LLMService()
         has_stream = (
-            hasattr(llm, "generate_response_stream") or
-            hasattr(llm, "stream_response") or
-            hasattr(llm, "stream")
+            hasattr(llm, "generate_response_stream")
+            or hasattr(llm, "stream_response")
+            or hasattr(llm, "stream")
         )
         # At minimum, the service should exist — stream used by dream_phase_stream
-        assert hasattr(llm, "generate_response"), "LLMService must have generate_response"
+        assert hasattr(
+            llm, "generate_response"
+        ), "LLMService must have generate_response"

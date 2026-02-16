@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import Sidebar from './components/Sidebar';
+import SidebarLeft from './components/SidebarLeft';
+import SidebarRight from './components/SidebarRight';
 import Post from './components/Post';
 import SyndicateGraphModal from './components/SyndicateGraphModal';
 
@@ -175,7 +176,34 @@ function App() {
                         if (event === 'LLM_ACTIVITY' || event === 'LLM') {
                             updateBusy('llm');
                             next.llm_step = data?.step;
-                            next.llm_agent = data?.agent; // Track WHICH agent is using the neural link
+                            next.llm_agent = data?.agent;
+                            // Capture performance metrics
+                            // Capture performance metrics
+                            if (data?.tps !== undefined) next.llm_activity_base = data.tps;
+                            if (data?.model !== undefined) next.llm_model = data.model;
+                            if (data?.signal !== undefined) next.llm_signal = data.signal;
+                            if (data?.synaptic_load !== undefined) next.llm_load = data.synaptic_load;
+                            if (data?.total_requests !== undefined) next.llm_requests = data.total_requests;
+                            if (data?.active_requests !== undefined) next.llm_active_requests = data.active_requests;
+                            if (data?.pending_requests !== undefined) next.llm_pending_requests = data.pending_requests;
+                            if (data?.queue_latency !== undefined) next.llm_queue_latency = data.queue_latency;
+                            if (data?.total_input_tokens !== undefined) next.llm_input_tokens = data.total_input_tokens;
+                            if (data?.total_output_tokens !== undefined) next.llm_output_tokens = data.total_output_tokens;
+
+                            // Concurrent Pressure Flux Model (mF)
+                            // 1. Static Pressure: Each active or pending link adds 15 mF of base intensity
+                            // 2. Dynamic Flow: Each TPS adds 5 mF of flux
+                            const totalLinks = (next.llm_active_requests || 0) + (next.llm_pending_requests || 0);
+                            const pressureFlux = totalLinks * 15;
+                            const flowFlux = (next.llm_activity_base || 0) * 5;
+
+                            next.llm_activity = Math.min(100, Math.round((pressureFlux + flowFlux) * 10) / 10);
+
+                            // Auto-decay base activity if link is severed
+                            if (totalLinks === 0) {
+                                next.llm_activity = 0;
+                                next.llm_activity_base = 0;
+                            }
                         }
                         if (event === 'EGO_CHECK' || event === 'EGO') {
                             updateBusy('ego');
@@ -276,7 +304,8 @@ function App() {
                     // Find the streaming post and append text
                     setPosts(prev => {
                         const newPosts = [...prev];
-                        const lastIdx = newPosts.findIndex(p => p.streamId === streamKey);
+                        // FIX: Use findLastIndex to ensure we update the MOST RECENT stream for this agent
+                        const lastIdx = newPosts.findLastIndex(p => p.streamId === streamKey);
                         if (lastIdx !== -1) {
                             const updatedPost = { ...newPosts[lastIdx] };
                             if (updatedPost.type === 'dream_stream') {
@@ -298,7 +327,8 @@ function App() {
                     // Finalize the post with the full authoritative data
                     setPosts(prev => {
                         const newPosts = [...prev];
-                        const lastIdx = newPosts.findIndex(p => p.streamId === streamKey);
+                        // FIX: Use findLastIndex to ensure we target the MOST RECENT stream
+                        const lastIdx = newPosts.findLastIndex(p => p.streamId === streamKey);
                         if (lastIdx !== -1) {
                             const originalPost = newPosts[lastIdx];
                             if (originalPost.type === 'dream_stream') {
@@ -348,6 +378,13 @@ function App() {
                     }, 8000);
                 } else if (msg.type === 'drain_status') {
                     setDrainStatus(msg);
+                } else if (msg.type === 'dream_session_marker') {
+                    setPosts(prev => [...prev, {
+                        _id: nextPostId(),
+                        type: 'dream_session_marker',
+                        timestamp: msg.timestamp,
+                        sessionId: msg.session_id
+                    }]);
                 }
             };
 
@@ -394,13 +431,13 @@ function App() {
     };
 
     return (
-        <div className="flex min-h-screen bg-claw-bg font-sans text-sm selection:bg-red-900 selection:text-white relative overflow-hidden">
+        <div className="flex h-screen bg-claw-bg font-sans text-sm selection:bg-red-900 selection:text-white relative overflow-hidden">
             {/* CRT & Vignette Overlays */}
-            <div className="crt-overlay"></div>
-            <div className="mic-vignette"></div>
+            <div className="crt-overlay pointer-events-none z-[100]"></div>
+            <div className="mic-vignette pointer-events-none z-[100]"></div>
 
-            {/* NEW: Left Sidebar */}
-            <Sidebar
+            {/* Left Sidebar: Operational */}
+            <SidebarLeft
                 agents={agents}
                 posts={posts}
                 statusText={statusText}
@@ -411,8 +448,96 @@ function App() {
                 systemState={systemState}
                 activity={activity}
                 onOpenGraph={handleOpenGraph}
+            />
+
+            {/* Main Content Area: Centered Chat */}
+            <div className="flex-1 flex flex-col h-screen relative z-10 overflow-hidden bg-white/50 backdrop-blur-sm shadow-inner">
+
+                {/*Header */}
+                <div className="bg-white/80 border-b border-gray-200 z-20 p-4 pb-2 backdrop-blur-md">
+                    <div className="max-w-3xl mx-auto">
+                        <div className="text-xl font-bold text-[#af0a0f] text-center tracking-tight border-b-2 border-[#af0a0f] pb-2">
+                            IRON_COUNCIL // COMMAND_INTERFACE
+                        </div>
+                    </div>
+                </div>
+
+                {/* Posts Area */}
+                <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+                    <div className="max-w-3xl mx-auto space-y-6 post-container">
+                        {posts.map((post) => (
+                            // Only show user and agent posts in the main chat
+                            (post.type === 'user' || post.type === 'agent_post' || post.type === 'system') &&
+                            <Post key={post._id} post={post} />
+                        ))}
+
+                        {/* Dream Mode Indicator in Main Chat */}
+                        {isDreaming && (
+                            <div className="p-4 bg-amber-50 border-2 border-amber-700 text-center shadow-sharp my-4 dream-banner">
+                                {drainStatus && drainStatus.phase === 'DRAINING' ? (
+                                    <>
+                                        <div className="text-amber-900 font-bold text-sm tracking-widest uppercase mb-2 font-mono">
+                                            ⚙ FLUSHING PIPELINE
+                                        </div>
+                                        <div className="flex gap-0.5 max-w-xs mx-auto mb-2">
+                                            {Array.from({ length: drainStatus.total }).map((_, i) => (
+                                                <div key={i} className={`flex-1 h-2 border border-amber-700 transition-all duration-500 ${i < (drainStatus.total - drainStatus.buffered.length)
+                                                    ? 'bg-amber-600'
+                                                    : 'bg-amber-100 animate-pulse'
+                                                    }`} />
+                                            ))}
+                                        </div>
+                                        <div className="text-amber-800 text-[10px] font-mono">
+                                            {drainStatus.buffered.length} AGENT{drainStatus.buffered.length !== 1 ? 'S' : ''} BUFFERED: {drainStatus.buffered.join(', ')}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-amber-900 font-bold text-lg tracking-widest uppercase mb-1 font-mono">
+                                            ⚠ SYSTEM DREAMING ⚠
+                                        </div>
+                                        <div className="text-amber-800 text-xs font-mono">
+                                            The council is reflecting via the Neural Link (Subconscious Log).
+                                            <br />
+                                            <span className="font-bold underline">CHECK THE SIDEBAR</span> for subjective memory formation.
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                        <div ref={bottomRef} />
+                    </div>
+                </div>
+
+                {/* Input Area */}
+                <div className="p-4 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20">
+                    <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex gap-2">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="COMMUNICATE PROTOCOL..."
+                            className="flex-1 bg-gray-50 border-2 border-claw-border p-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-[#af0a0f] shadow-inner"
+                        />
+                        <button
+                            type="submit"
+                            className="bg-[#af0a0f] text-white px-6 py-2 font-bold uppercase tracking-widest shadow-sharp hover:bg-red-800 active:shadow-none transition-all"
+                        >
+                            SEND
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {/* Right Sidebar: Intelligence */}
+            <SidebarRight
+                agents={agents}
+                posts={posts}
+                heartbeatStats={heartbeatStats}
+                activity={activity}
                 verdicts={verdicts}
                 goalHistory={goalHistory}
+                statusText={statusText}
             />
 
             {/* Modals */}
@@ -422,99 +547,8 @@ function App() {
                 agents={agents}
                 focusedAgentId={selectedAgentId}
             />
-
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col h-screen relative">
-
-                {/*Header */}
-                <div className="bg-claw-bg z-20 p-4 pb-0">
-                    <div className="max-w-3xl mx-auto">
-                        <div className="text-xl font-bold text-[#af0a0f] text-center tracking-tight border-b-2 border-[#af0a0f] pb-2">
-                            /ic/ - Iron Council Simulation <span className="text-xs font-normal text-gray-500">[Thread #849102]</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Scrollable Thread View */}
-                <div className="flex-1 overflow-y-auto p-4 pt-0 pb-32 scrollbar-hide">
-                    <div className="max-w-3xl mx-auto">
-                        {/* Posts Container */}
-                        <div className="space-y-4 post-container pt-6">
-                            {posts.map((post, idx) => {
-                                // Skip dream posts in the main chat as they are now in the sidebar
-                                if (post.type === 'dream' || post.type === 'dream_stream') return null;
-                                return <Post key={post._id || idx} post={post} />;
-                            })}
-
-                            {/* Dream Mode Indicator in Main Chat */}
-                            {isDreaming && (
-                                <div className="p-4 bg-amber-50 border-2 border-amber-700 text-center shadow-sharp my-4 dream-banner">
-                                    {drainStatus && drainStatus.phase === 'DRAINING' ? (
-                                        <>
-                                            <div className="text-amber-900 font-bold text-sm tracking-widest uppercase mb-2 font-mono">
-                                                ⚙ FLUSHING PIPELINE
-                                            </div>
-                                            <div className="flex gap-0.5 max-w-xs mx-auto mb-2">
-                                                {Array.from({ length: drainStatus.total }).map((_, i) => (
-                                                    <div key={i} className={`flex-1 h-2 border border-amber-700 transition-all duration-500 ${i < (drainStatus.total - drainStatus.buffered.length)
-                                                        ? 'bg-amber-600'
-                                                        : 'bg-amber-100 animate-pulse'
-                                                        }`} />
-                                                ))}
-                                            </div>
-                                            <div className="text-amber-800 text-[10px] font-mono">
-                                                {drainStatus.buffered.length} AGENT{drainStatus.buffered.length !== 1 ? 'S' : ''} BUFFERED: {drainStatus.buffered.join(', ')}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="text-amber-900 font-bold text-lg tracking-widest uppercase mb-1 font-mono">
-                                                ⚠ SYSTEM DREAMING ⚠
-                                            </div>
-                                            <div className="text-amber-800 text-xs font-mono">
-                                                The council is reflecting via the Neural Link (Subconscious Log).
-                                                <br />
-                                                <span className="font-bold underline">CHECK THE SIDEBAR</span> for subjective memory formation.
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            )}
-
-                            <div ref={bottomRef} />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Fixed Input Bar at Bottom */}
-                <div className="absolute bottom-0 left-0 w-full bg-[#d6daf0] border-t-2 border-claw-border p-3 shadow-2xl z-40">
-                    <div className="max-w-3xl mx-auto flex gap-3">
-                        <div className="text-[11px] self-center hidden sm:flex items-center gap-1 font-bold text-[#af0a0f] uppercase tracking-widest whitespace-nowrap">
-                            <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
-                            CHAIRMAN
-                        </div>
-                        <form onSubmit={handleSubmit} className="flex-1 flex gap-2">
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                className="flex-1 border-2 border-claw-border p-2 text-[14px] focus:ring-2 focus:ring-red-500 outline-none shadow-sharp font-mono bg-white rounded-none"
-                                placeholder={connected ? ">> BROADCAST TO THE COUNCIL_" : "ESTABLISHING UPLINK..."}
-                                disabled={!connected}
-                            />
-                            <button
-                                type="submit"
-                                disabled={!connected}
-                                className="px-6 py-2 bg-[#af0a0f] text-white border-2 border-black font-bold hover:bg-red-800 disabled:opacity-50 text-[11px] uppercase tracking-wider shadow-sharp active:shadow-none translate-y-[-2px] active:translate-y-[0px] transition-all"
-                            >
-                                Post
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
         </div>
     );
-}
+};
 
 export default App;

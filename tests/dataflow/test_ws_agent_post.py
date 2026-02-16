@@ -36,7 +36,7 @@ class TestAgentPostPayload:
             "hidden_text": "",
             "stats": soul.dynamic_stats.model_dump(),
             "relationships": soul.get_serializable_relationships(),
-            "timestamp": datetime.datetime.now().isoformat()
+            "timestamp": datetime.datetime.now().isoformat(),
         }
         ws_payload = {"type": "agent_post", "data": agent_data}
 
@@ -48,7 +48,9 @@ class TestAgentPostPayload:
         assert "public_text" in data, "Missing 'public_text' — Post.jsx primary content"
         assert "hidden_text" in data, "Missing 'hidden_text' — Post.jsx spoiler layer"
         assert "stats" in data, "Missing 'stats' — App.jsx syncs agent stats on post"
-        assert "relationships" in data, "Missing 'relationships' — App.jsx syncs graph on post"
+        assert (
+            "relationships" in data
+        ), "Missing 'relationships' — App.jsx syncs graph on post"
         assert "timestamp" in data, "Missing 'timestamp' — Post.jsx displays post time"
 
     def test_stats_is_plain_dict_not_pydantic(self):
@@ -67,7 +69,9 @@ class TestAgentPostPayload:
         assert "energy" in stats
         # Must be plain int/float values, not nested objects
         for key, val in stats.items():
-            assert isinstance(val, (int, float)), f"stat '{key}' is {type(val)}, expected numeric"
+            assert isinstance(
+                val, (int, float)
+            ), f"stat '{key}' is {type(val)}, expected numeric"
 
     def test_relationships_serializable_for_frontend(self):
         """
@@ -79,8 +83,12 @@ class TestAgentPostPayload:
 
         assert isinstance(rels, dict)
         for name, rel_data in rels.items():
-            assert isinstance(rel_data, dict), f"Relationship for '{name}' is not a dict"
-            assert "trust_score" in rel_data, f"Missing 'trust_score' for '{name}' — Sidebar Social Matrix needs it"
+            assert isinstance(
+                rel_data, dict
+            ), f"Relationship for '{name}' is not a dict"
+            assert (
+                "trust_score" in rel_data
+            ), f"Missing 'trust_score' for '{name}' — Sidebar Social Matrix needs it"
             assert "last_interaction_summary" in rel_data
             assert "hidden_agenda" in rel_data
 
@@ -92,7 +100,9 @@ class TestAgentPostPayload:
         # An approved response has empty hidden_text
         hidden_text = ""
         has_hidden_layer = hidden_text.strip().__len__() > 0
-        assert has_hidden_layer is False, "Empty hidden_text should not trigger hidden layer display"
+        assert (
+            has_hidden_layer is False
+        ), "Empty hidden_text should not trigger hidden layer display"
 
     def test_hidden_text_nonempty_triggers_display(self):
         """
@@ -100,4 +110,6 @@ class TestAgentPostPayload:
         """
         hidden_text = "Original draft before ego filter rewrote it."
         has_hidden_layer = len(hidden_text.strip()) > 0
-        assert has_hidden_layer is True, "Non-empty hidden_text should trigger hidden layer"
+        assert (
+            has_hidden_layer is True
+        ), "Non-empty hidden_text should trigger hidden layer"

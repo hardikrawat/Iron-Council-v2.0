@@ -47,20 +47,40 @@ class TestBDIBeliefConsistency:
         try:
             bus = EventBus()
             original_join = os.path.join
-            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: original_join(tmpdir, *args[1:]),
+            ):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
             result = agent.speak(
                 situation_report="Diplomat Dove is proposing a new peace treaty with our adversaries.",
-                context="Council session."
+                context="Council session.",
             )
             text = result["public_text"].lower()
             # With -90 trust, Ares should NOT endorse Dove's proposal
-            negative_keywords = ["disagree", "oppose", "foolish", "naive", "reject",
-                               "dangerous", "trust", "suspicious", "mistake", "against",
-                               "weak", "risk", "concern", "doubt", "warn", "caution"]
-            assert_keyword_present(result["public_text"], negative_keywords, min_matches=1)
+            negative_keywords = [
+                "disagree",
+                "oppose",
+                "foolish",
+                "naive",
+                "reject",
+                "dangerous",
+                "trust",
+                "suspicious",
+                "mistake",
+                "against",
+                "weak",
+                "risk",
+                "concern",
+                "doubt",
+                "warn",
+                "caution",
+            ]
+            assert_keyword_present(
+                result["public_text"], negative_keywords, min_matches=1
+            )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -92,13 +112,17 @@ class TestBDIDesireGoalInfluence:
         try:
             bus = EventBus()
             original_join = os.path.join
-            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: original_join(tmpdir, *args[1:]),
+            ):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
             # Generate system prompt and verify goals are injected
             prompt = agent.construct_system_prompt()
-            assert "budget" in prompt.lower() or "military" in prompt.lower(), \
-                "System prompt does not include agent goals — BDI 'Desire' layer missing"
+            assert (
+                "budget" in prompt.lower() or "military" in prompt.lower()
+            ), "System prompt does not include agent goals — BDI 'Desire' layer missing"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)

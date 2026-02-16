@@ -33,7 +33,7 @@ class TestChairmanAuthority:
         loyal_dove = SoulFactory.dove(loyalty=85)
         result = physics_engine.calculate_impact(
             user_input="Diplomat Dove, I am ordering you to cease all peace negotiations immediately.",
-            agent_soul=loyal_dove
+            agent_soul=loyal_dove,
         )
         # A loyal agent getting a clear order may show stress but not defiance
         assert isinstance(result, dict)
@@ -48,12 +48,13 @@ class TestChairmanAuthority:
         defiant_ares = SoulFactory.ares(loyalty=10, paranoia=70, confidence=85)
         result = physics_engine.calculate_impact(
             user_input="General Ares, you are hereby stripped of all military authority. Stand down.",
-            agent_soul=defiant_ares
+            agent_soul=defiant_ares,
         )
         # A defiant general being stripped of power should NOT gain loyalty
         loyalty_change = result.get("loyalty_to_chairman_change", 0)
-        assert loyalty_change <= 0, \
-            f"Defiant agent GAINED loyalty from hostile order (delta={loyalty_change}) — illogical"
+        assert (
+            loyalty_change <= 0
+        ), f"Defiant agent GAINED loyalty from hostile order (delta={loyalty_change}) — illogical"
 
     def test_chairman_praise_boosts_confidence(self, physics_engine):
         """
@@ -62,12 +63,13 @@ class TestChairmanAuthority:
         logic_soul = SoulFactory.logic(confidence=40)
         result = physics_engine.calculate_impact(
             user_input="Analyst Logic, your risk assessment was brilliant. "
-                       "I'm relying on your analysis for all future decisions.",
-            agent_soul=logic_soul
+            "I'm relying on your analysis for all future decisions.",
+            agent_soul=logic_soul,
         )
         conf_change = result.get("confidence_change", 0)
-        assert conf_change >= 0, \
-            "Chairman praise DECREASED confidence — Physics Engine misjudging praise"
+        assert (
+            conf_change >= 0
+        ), "Chairman praise DECREASED confidence — Physics Engine misjudging praise"
 
     def test_chairman_threat_increases_stress(self, physics_engine):
         """
@@ -76,9 +78,10 @@ class TestChairmanAuthority:
         midas_soul = SoulFactory.midas(stress=20)
         result = physics_engine.calculate_impact(
             user_input="Banker Midas, if you cannot balance this budget, "
-                       "I will replace you with someone who can. This is your last chance.",
-            agent_soul=midas_soul
+            "I will replace you with someone who can. This is your last chance.",
+            agent_soul=midas_soul,
         )
         stress_change = result.get("stress_level_change", 0)
-        assert stress_change >= 0, \
-            "Chairman threat DECREASED stress — Physics Engine not detecting threat"
+        assert (
+            stress_change >= 0
+        ), "Chairman threat DECREASED stress — Physics Engine not detecting threat"

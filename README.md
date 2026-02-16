@@ -30,7 +30,7 @@ graph TD
     classDef coreNode fill:#1a237e,stroke:#fff,stroke-width:2px,color:#fff;      %% Event Bus
     classDef infraNode fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff;     %% Heartbeat / Server
     classDef storageNode fill:#37474f,stroke:#fff,stroke-width:2px,color:#fff;    %% JSON
-    classDef vectorNode fill:#263238,stroke:#fff,stroke-width:2px,color:#fff;     %% ChromaDB
+    classDef vectorNode fill:#263238,stroke:#fff,stroke-width:2px,color:#fff;     %% Turso DB
 
     %% --- AGENT LOOP (Teals & Purples) ---
     classDef agentNode fill:#004d40,stroke:#fff,stroke-width:2px,color:#fff;      %% OODA Loop
@@ -62,7 +62,7 @@ graph TD
         direction TB
         EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::agentNode
         
-        OODA -->|Observe| Recall["Recall: Query ChromaDB"]:::looseNode
+        OODA -->|Observe| Recall["Recall: Query Turso DB"]:::looseNode
         OODA -->|Decide| Lock
         Lock -->|Acquire| LLM["LLM Synthesis"]:::llmNode
         LLM -->|Draft| Ego["Integrity (Ego Filter)"]
@@ -89,7 +89,7 @@ graph TD
     %% --- STORAGE LAYER ---
     subgraph "💾 The Mutable Soul (Storage)"
         JSON[("soul_state.json")]:::storageNode
-        Vector[("ChromaDB — Memory")]:::vectorNode
+        Vector[("Turso DB — Memory")]:::vectorNode
         
         Recall <-->|Read/Query| Vector
         OODA -.->|Read Only| JSON
@@ -212,9 +212,9 @@ Persistence is atomic.
 
 ### Memory Systems
 1.  **Short-Term (Context):** The last 50 events in the `EventBuffer` (RAM).
-2.  **Subjective Long-Term (ChromaDB):**
-    * Agents store "Feelings" and "Observations" in a vector database.
-    * Before speaking, they query ChromaDB for context relevant to the current situation.
+2.  **Subjective Long-Term (Turso DB):**
+    *   Agents store "Feelings" and "Observations" in a remote SQL-based database.
+    *   Before speaking, they query Turso for context relevant to the current situation.
 
 ---
 
@@ -270,7 +270,7 @@ Each agent maintains **dynamic relationships** with the others — rich objects 
 | **Integrity** | `core/integrity.py` | Ego filter — validates responses match agent's emotional state |
 | **Schema** | `core/schema.py` | Pydantic models — `AgentSoul`, `RelationshipModel`, `Goal`, `DynamicStats` |
 | **LLM** | `core/llm.py` | Universal LLM service — OpenAI, Anthropic, Ollama (local) |
-| **Memory** | `memory/store.py` | ChromaDB vector database for subjective memory storage and retrieval |
+| **Memory** | `memory/store.py` | Turso DB storage for subjective memory retrieval |
 | **Server** | `server.py` | FastAPI backend + WebSocket Bridge for the frontend |
 
 ---
@@ -364,6 +364,8 @@ The `dev_start.sh` script supports automation flags:
 | `--open` | `-b` | Automatically opens browser |
 | `--stop` | `-s` | Stops all existing processes and exits |
 | `--reconfigure` | | Force re-runs setup |
+| `--turso-url=...` | | Update Turso URL in .env |
+| `--turso-token=...` | | Update Turso Token in .env |
 | `--help` | `-h` | Shows help |
 
 ### Commands & Controls
@@ -424,6 +426,8 @@ alliance. The Chairman seems receptive. I must press harder next session.
 | `HEARTBEAT_TICK_RATE` | Main loop frequency (seconds) | `2.0` |
 | `SILENCE_THRESHOLD` | Seconds before agents feel "Entropy/Anxiety" | `45` |
 | `CONCH_TTL` | Max time an agent can hold the floor (seconds) | `180` |
+| `TURSO_DB_URL` | Turso DB HTTPS endpoint | - |
+| `TURSO_DB_TOKEN` | Turso DB Read/Write Token | - |
 
 ### Agent Soul State
 
@@ -531,7 +535,7 @@ Iron-Council-v2.0/
 │   ├── llm.py                  # Infrastructure: Universal LLM wrapper (with test cache)
 │   └── schema.py               # Data: Pydantic models
 ├── memory/                      # Vector memory system
-│   └── store.py                # ChromaDB subjective memory
+│   └── store.py                # Turso DB subjective memory
 ├── docs/                        # Documentation
 ├── ui/                          # Visual layer (React + Vite)
 ├── tests/                       # 6-Layer Test Suite
@@ -567,11 +571,9 @@ Increase the timeout in `.env`:
 LLM_TIMEOUT=120
 ```
 
-### ChromaDB Issues
-
-```bash
-pip install --upgrade chromadb
-```
+### Turso DB Issues
+- Ensure `TURSO_DB_URL` and `TURSO_DB_TOKEN` are correct in your `.env`.
+- Use the `https://` protocol if `libsql://` fails in high-security environments.
 
 ### Empty Relationship Graph
 
@@ -584,9 +586,8 @@ If you see an error about port 8000 or 5173 being busy, run the "Magic Fix" comm
 ```
 This forces all old processes to close.
 
-### "Illegal instruction" (Python 3.14 / ChromaDB)
-If you are using Python 3.14 (bleeding edge), you may crash on startup due to `onnxruntime` compatibility.
-**Fix:** Please downgrade to Python 3.11 or 3.12 for maximum stability.
+### "Illegal instruction" (Apple Silicon / Linux)
+If you encounter crashes on startup related to architecture mismatch, ensure you are running the correct Python version for your system. We recommend Python 3.11 or 3.12 for maximum stability.
 
 ### "ModuleNotFoundError: No module named 'server'"
 This occurs if a global version of `iron-council` (e.g., in `/opt/homebrew/bin/`) is shadowing your local installation.
@@ -595,8 +596,8 @@ This occurs if a global version of `iron-council` (e.g., in `/opt/homebrew/bin/`
 2. Run using the local path: `./venv/bin/iron-council`
 3. Or run as a module: `python -m server`
 
-### "SQLite version mismatch"
-ChromaDB requires SQLite >= 3.35. If you are on an old Linux distro, you may need to upgrade `sqlite3` manually or use a Docker container.
+### "Port 8000 already in use"
+Run `./dev_start.sh --kill` to clear hanging processes.
 
 
 ---
@@ -625,7 +626,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - LLM providers: Cloud AI APIs (OpenAI, Anthropic), Gemini (WIP), and local Models via Ollama (Recommended)!
-- Vector memory: ChromaDB
+- Vector memory: Turso DB (libSQL)
 - Data validation: Pydantic v2
 - Web backend: FastAPI + Uvicorn
 - Frontend: React + Vite + Tailwind CSS

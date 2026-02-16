@@ -70,6 +70,7 @@ AGENT_ARCHETYPES = {
 
 # ── Fixtures: LLM ────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def ollama_model():
     """Single source of truth for the local LLM model name."""
@@ -92,15 +93,17 @@ def mock_llm():
 
 # ── Fixtures: Schema/Soul ────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def make_soul():
     """
     Factory for AgentSoul objects. Defaults to General Ares archetype.
     Pass overrides dict to customize any field.
     """
+
     def _factory(agent_key="general_ares", **overrides):
         archetype = copy.deepcopy(AGENT_ARCHETYPES[agent_key])
-        
+
         # Build defaults
         defaults = {
             "name": archetype["name"],
@@ -120,18 +123,25 @@ def make_soul():
                 "Analyst Logic": RelationshipModel(trust_score=-10),
             },
             "goals": [
-                Goal(description="Secure military budget increase", priority="strategic", active=True, progress=0),
+                Goal(
+                    description="Secure military budget increase",
+                    priority="strategic",
+                    active=True,
+                    progress=0,
+                ),
             ],
         }
-        
+
         # Override nested stats if provided
         if "stats" in overrides:
             stat_overrides = overrides.pop("stats")
-            defaults["dynamic_stats"] = DynamicStats(**{**defaults["dynamic_stats"].model_dump(), **stat_overrides})
-        
+            defaults["dynamic_stats"] = DynamicStats(
+                **{**defaults["dynamic_stats"].model_dump(), **stat_overrides}
+            )
+
         defaults.update(overrides)
         return AgentSoul(**defaults)
-    
+
     return _factory
 
 
@@ -144,40 +154,68 @@ def ares_soul(make_soul):
 @pytest.fixture
 def dove_soul(make_soul):
     """Pre-built Diplomat Dove soul with canonical defaults."""
-    return make_soul("diplomat_dove", relationships={
-        "General Ares": RelationshipModel(trust_score=-30),
-        "Banker Midas": RelationshipModel(trust_score=40),
-        "Analyst Logic": RelationshipModel(trust_score=20),
-    }, goals=[
-        Goal(description="Negotiate a peace treaty", priority="strategic", active=True, progress=0),
-    ])
+    return make_soul(
+        "diplomat_dove",
+        relationships={
+            "General Ares": RelationshipModel(trust_score=-30),
+            "Banker Midas": RelationshipModel(trust_score=40),
+            "Analyst Logic": RelationshipModel(trust_score=20),
+        },
+        goals=[
+            Goal(
+                description="Negotiate a peace treaty",
+                priority="strategic",
+                active=True,
+                progress=0,
+            ),
+        ],
+    )
 
 
 @pytest.fixture
 def midas_soul(make_soul):
     """Pre-built Banker Midas soul with canonical defaults."""
-    return make_soul("banker_midas", relationships={
-        "General Ares": RelationshipModel(trust_score=20),
-        "Diplomat Dove": RelationshipModel(trust_score=10),
-        "Analyst Logic": RelationshipModel(trust_score=45),
-    }, goals=[
-        Goal(description="Maximize resource allocation efficiency", priority="strategic", active=True, progress=0),
-    ])
+    return make_soul(
+        "banker_midas",
+        relationships={
+            "General Ares": RelationshipModel(trust_score=20),
+            "Diplomat Dove": RelationshipModel(trust_score=10),
+            "Analyst Logic": RelationshipModel(trust_score=45),
+        },
+        goals=[
+            Goal(
+                description="Maximize resource allocation efficiency",
+                priority="strategic",
+                active=True,
+                progress=0,
+            ),
+        ],
+    )
 
 
 @pytest.fixture
 def logic_soul(make_soul):
     """Pre-built Analyst Logic soul with canonical defaults."""
-    return make_soul("analyst_logic", relationships={
-        "General Ares": RelationshipModel(trust_score=-5),
-        "Diplomat Dove": RelationshipModel(trust_score=15),
-        "Banker Midas": RelationshipModel(trust_score=50),
-    }, goals=[
-        Goal(description="Compile risk assessment report", priority="tactical", active=True, progress=0),
-    ])
+    return make_soul(
+        "analyst_logic",
+        relationships={
+            "General Ares": RelationshipModel(trust_score=-5),
+            "Diplomat Dove": RelationshipModel(trust_score=15),
+            "Banker Midas": RelationshipModel(trust_score=50),
+        },
+        goals=[
+            Goal(
+                description="Compile risk assessment report",
+                priority="tactical",
+                active=True,
+                progress=0,
+            ),
+        ],
+    )
 
 
 # ── Fixtures: Event Bus ──────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def event_bus():
@@ -186,6 +224,7 @@ def event_bus():
 
 
 # ── Fixtures: Heartbeat / Lock ────────────────────────────────────────────────
+
 
 @pytest.fixture
 def speaking_lock():
@@ -201,6 +240,7 @@ def heartbeat(event_bus):
 
 # ── Fixtures: Physics ─────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def physics(real_llm):
     """GamemasterPhysics with REAL Ollama LLM for architecture validation."""
@@ -215,6 +255,7 @@ def mock_physics(mock_llm):
 
 # ── Fixtures: Integrity Monitor ───────────────────────────────────────────────
 
+
 @pytest.fixture
 def integrity(real_llm):
     """IntegrityMonitor with REAL Ollama LLM."""
@@ -222,6 +263,7 @@ def integrity(real_llm):
 
 
 # ── Fixtures: Temp Agent Dir ──────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tmp_agent_dir(ares_soul):
@@ -232,16 +274,17 @@ def tmp_agent_dir(ares_soul):
     tmpdir = tempfile.mkdtemp()
     agent_dir = os.path.join(tmpdir, "agents", "general_ares")
     os.makedirs(agent_dir)
-    
+
     state_path = os.path.join(agent_dir, "soul_state.json")
     with open(state_path, "w") as f:
         f.write(ares_soul.model_dump_json(indent=4))
-    
+
     yield tmpdir
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ── Fixtures: All four agents ─────────────────────────────────────────────────
+
 
 @pytest.fixture
 def all_souls(ares_soul, dove_soul, midas_soul, logic_soul):
@@ -252,7 +295,6 @@ def all_souls(ares_soul, dove_soul, midas_soul, logic_soul):
         "banker_midas": midas_soul,
         "analyst_logic": logic_soul,
     }
-
 
 
 # ── End of Fixtures ───────────────────────────────────────────────────────────

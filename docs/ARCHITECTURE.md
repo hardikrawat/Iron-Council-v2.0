@@ -22,7 +22,7 @@ graph TD
     classDef coreNode fill:#1a237e,stroke:#fff,stroke-width:2px,color:#fff;      %% Event Bus
     classDef infraNode fill:#0d47a1,stroke:#fff,stroke-width:2px,color:#fff;     %% Heartbeat / Server
     classDef storageNode fill:#37474f,stroke:#fff,stroke-width:2px,color:#fff;    %% JSON
-    classDef vectorNode fill:#263238,stroke:#fff,stroke-width:2px,color:#fff;     %% ChromaDB
+    classDef vectorNode fill:#263238,stroke:#fff,stroke-width:2px,color:#fff;     %% Turso DB
 
     %% --- AGENT LOOP (Teals & Purples) ---
     classDef agentNode fill:#004d40,stroke:#fff,stroke-width:2px,color:#fff;      %% OODA Loop
@@ -54,7 +54,7 @@ graph TD
         direction TB
         EventBus -->|Broadcast| OODA["Agent OODA Loop (Parallel)"]:::agentNode
         
-        OODA -->|Observe| Recall["Recall: Query ChromaDB"]:::looseNode
+        OODA -->|Observe| Recall["Recall: Query Turso DB"]:::looseNode
         OODA -->|Decide| Lock
         Lock -->|Acquire| LLM["LLM Synthesis"]:::llmNode
         LLM -->|Draft| Ego["Integrity (Ego Filter)"]
@@ -81,7 +81,7 @@ graph TD
     %% --- STORAGE LAYER ---
     subgraph "💾 The Mutable Soul (Storage)"
         JSON[("soul_state.json")]:::storageNode
-        Vector[("ChromaDB — Memory")]:::vectorNode
+        Vector[("Turso DB — Memory")]:::vectorNode
         
         Recall <-->|Read/Query| Vector
         OODA -.->|Read Only| JSON
@@ -204,9 +204,9 @@ Persistence is atomic.
 
 ### Memory Systems
 1.  **Short-Term (Context):** The last 50 events in the `EventBuffer` (RAM).
-2.  **Subjective Long-Term (ChromaDB):**
-    * Agents store "Feelings" and "Observations" in a vector database.
-    * Before speaking, they query ChromaDB for context relevant to the current situation.
+2.  **Subjective Long-Term (Turso DB):**
+    *   Agents store "Feelings" and "Observations" in a remote SQL-based database.
+    *   Before speaking, they query Turso for context relevant to the current situation.
 
 ---
 

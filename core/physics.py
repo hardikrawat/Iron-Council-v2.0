@@ -20,20 +20,17 @@ class GamemasterPhysics:
     - reconcile_turn()    → Agent ↔ Agent (Legacy/Terminal Mode ONLY)
     - calculate_relationship_update() → Agent ↔ Agent (Event-Driven/Web Mode ONLY)
     """
+
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
         # Default system model — can be overridden by env
         self.system_model = os.getenv("GENERAL_ARES_MODEL") or "gpt-4o"
 
-    def calculate_impact(
-        self,
-        user_input: str,
-        agent_soul: "AgentSoul"
-    ) -> dict:
+    def calculate_impact(self, user_input: str, agent_soul: "AgentSoul") -> dict:
         """
         User ↔ Agent ONLY. Calculates how the Chairman's action affects
         this agent's personal stats and goal progress.
-        
+
         Args:
             user_input: The Chairman's statement/action.
             agent_soul: The target agent's soul object.
@@ -78,26 +75,34 @@ Expected Schema:
             response_text = self.llm_service.generate_response(
                 model_name=self.system_model,
                 system_prompt=system_prompt,
-                user_message=user_prompt
+                user_message=user_prompt,
             )
 
             # Extract JSON if LLM includes markers
             if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
+                response_text = (
+                    response_text.split("```json")[1].split("```")[0].strip()
+                )
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
             # Fix common LLM error: including '+' in JSON numbers
-            response_text = re.sub(r':\s*\+(\d+)', r': \1', response_text)
+            response_text = re.sub(r":\s*\+(\d+)", r": \1", response_text)
 
             impact = json.loads(response_text)
-            
+
             # Standardize keys to match Schema
             impact["loyalty_to_chairman_change"] = impact.pop("loyalty_change", 0)
             impact["stress_level_change"] = impact.pop("stress_change", 0)
 
             # Safe cast to int
-            for k in ["confidence_change", "paranoia_change", "loyalty_to_chairman_change", "stress_level_change", "energy_change"]:
+            for k in [
+                "confidence_change",
+                "paranoia_change",
+                "loyalty_to_chairman_change",
+                "stress_level_change",
+                "energy_change",
+            ]:
                 try:
                     impact[k] = int(impact.get(k, 0))
                 except (ValueError, TypeError):
@@ -108,11 +113,15 @@ Expected Schema:
             # Legacy compat — no longer populated here, but keep key for callers
             impact.setdefault("relationship_changes", {})
 
-            logger.info(f"[PHYSICS] Calculated impact for {agent_name}: Loyalty {impact.get('loyalty_to_chairman_change')}, Stress {impact.get('stress_level_change')}")
+            logger.info(
+                f"[PHYSICS] Calculated impact for {agent_name}: Loyalty {impact.get('loyalty_to_chairman_change')}, Stress {impact.get('stress_level_change')}"
+            )
             return impact
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse physics impact JSON: {e}. Raw response: {response_text}")
+            logger.error(
+                f"Failed to parse physics impact JSON: {e}. Raw response: {response_text}"
+            )
             return {
                 "confidence_change": 0,
                 "paranoia_change": 0,
@@ -120,7 +129,7 @@ Expected Schema:
                 "stress_level_change": 0,
                 "reasoning": "Error parsing engine response.",
                 "relationship_changes": {},
-                "goal_updates": {}
+                "goal_updates": {},
             }
         except Exception as e:
             logger.error(f"Error in calculate_impact: {e}")
@@ -131,7 +140,7 @@ Expected Schema:
                 "stress_level_change": 0,
                 "reasoning": f"System error: {str(e)}",
                 "relationship_changes": {},
-                "goal_updates": {}
+                "goal_updates": {},
             }
 
     def reconcile_turn(
@@ -143,7 +152,7 @@ Expected Schema:
         transcript: List = None,
         # Batch Mode (Legacy)
         agent_responses: Optional[List[Dict[str, str]]] = None,
-        agent_core_values: Optional[Dict[str, List[str]]] = None
+        agent_core_values: Optional[Dict[str, List[str]]] = None,
     ) -> Dict:
         """
         Evaluates interaction logic. Two modes:
@@ -153,14 +162,18 @@ Expected Schema:
         """
         # Mode 1: Granular
         if speaker_soul and listener_soul and statement:
-            delta = self.calculate_relationship_update(speaker_soul.name, statement, listener_soul)
+            delta = self.calculate_relationship_update(
+                speaker_soul.name, statement, listener_soul
+            )
             # Return dict format expected by tests/architecture
             # Note: Tests expect { "trust_delta": int, ... } or similar?
             # test_alliance_betrayal.py expects result[trust_key] to be the delta
             # The tests inspect the RETURN value look for "trust...".
             # The Architecture doc says returns Dict[str, Dict[str, int]].
-            
-            logger.info(f"[PHYSICS] Granular update: {listener_soul.name} -> {speaker_soul.name} | Delta: {delta}")
+
+            logger.info(
+                f"[PHYSICS] Granular update: {listener_soul.name} -> {speaker_soul.name} | Delta: {delta}"
+            )
             return {listener_soul.name: {speaker_soul.name: delta}}
 
         # Mode 2: Batch
@@ -178,7 +191,9 @@ Expected Schema:
         transcript = "\n".join(transcript_lines)
         agent_names = [r["name"] for r in agent_responses]
 
-        system_prompt = "You are the Relationship Engine. You ONLY analyze Agent-to-Agent dynamics."
+        system_prompt = (
+            "You are the Relationship Engine. You ONLY analyze Agent-to-Agent dynamics."
+        )
         user_prompt = f"""The following agents just spoke in the council:
 
 {transcript}
@@ -213,16 +228,18 @@ Expected Schema (for {len(agent_names)} agents):
             response_text = self.llm_service.generate_response(
                 model_name=self.system_model,
                 system_prompt=system_prompt,
-                user_message=user_prompt
+                user_message=user_prompt,
             )
 
             # Extract JSON
             if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
+                response_text = (
+                    response_text.split("```json")[1].split("```")[0].strip()
+                )
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
-            response_text = re.sub(r':\s*\+(\d+)', r': \1', response_text)
+            response_text = re.sub(r":\s*\+(\d+)", r": \1", response_text)
 
             matrix = json.loads(response_text)
 
@@ -276,18 +293,16 @@ Expected Schema (for {len(agent_names)} agents):
             return clean_matrix
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse reconciliation JSON: {e}. Raw: {response_text}")
+            logger.error(
+                f"Failed to parse reconciliation JSON: {e}. Raw: {response_text}"
+            )
             return {}
         except Exception as e:
             logger.error(f"Error in reconcile_turn: {e}")
             return {}
 
-
     def calculate_relationship_update(
-        self,
-        speaker_name: str,
-        content: str,
-        listener_soul: Union["AgentSoul", object] 
+        self, speaker_name: str, content: str, listener_soul: Union["AgentSoul", object]
     ) -> int:
         """
         Calculates the change in trust for a listener agent based on what a speaker said.
@@ -297,7 +312,7 @@ Expected Schema (for {len(agent_names)} agents):
         # Handle IronAgent wrapper if passed (Legacy compatibility)
         if hasattr(listener_soul, "soul"):
             listener_soul = listener_soul.soul
-            
+
         # Self-talk check
         if speaker_name == listener_soul.name:
             return 0
@@ -310,7 +325,7 @@ Expected Schema (for {len(agent_names)} agents):
             f"You are the Relationship Engine. You determine how {listener_soul.name}'s "
             f"opinion of {speaker_name} changes based on their recent statement."
         )
-        
+
         user_prompt = f"""
 Listener: {listener_soul.name}
 Listener's Core Values: {', '.join(listener_soul.core_values)}
@@ -334,18 +349,18 @@ Output ONLY an integer.
             response_text = self.llm_service.generate_response(
                 model_name=self.system_model,
                 system_prompt=system_prompt,
-                user_message=user_prompt
+                user_message=user_prompt,
             )
 
             # Clean up response
             response_text = response_text.strip()
             # Remove any markdown or extra text
-            match = re.search(r'-?\d+', response_text)
+            match = re.search(r"-?\d+", response_text)
             if match:
-                 delta = int(match.group())
+                delta = int(match.group())
             else:
-                 logger.warning(f"Could not parse delta from LLM: {response_text}")
-                 delta = 0
+                logger.warning(f"Could not parse delta from LLM: {response_text}")
+                delta = 0
 
             # Clamp delta
             delta = max(-15, min(15, delta))
@@ -353,8 +368,10 @@ Output ONLY an integer.
             # Update Relationship
             if delta != 0:
                 listener_soul.update_relationship(speaker_name, delta)
-                logger.info(f"[RELATIONSHIP] {listener_soul.name} -> {speaker_name}: Delta {delta} (New Total: {listener_soul.relationships[speaker_name].trust_score})")
-            
+                logger.info(
+                    f"[RELATIONSHIP] {listener_soul.name} -> {speaker_name}: Delta {delta} (New Total: {listener_soul.relationships[speaker_name].trust_score})"
+                )
+
             return delta
 
         except Exception as e:
@@ -364,23 +381,23 @@ Output ONLY an integer.
     def adjudicate_narrative(
         self,
         recent_history: List[Dict[str, str]],
-        active_goals: Dict[str, Dict[str, int]]
+        active_goals: Dict[str, Dict[str, int]],
     ) -> Dict[str, Dict[str, int]]:
         """
         The "Gamemaster Loop". Analyzes a batch of messages to determine goal progress.
-        
+
         Args:
             recent_history: List of dicts [{'agent': 'Ares', 'text': '...'}]
             active_goals: Dict mapping AgentName -> {GoalDescription: CurrentProgress}
-            
+
         Returns:
             Dict mapping AgentName -> {GoalDescription: DeltaInt}
         """
         # 1. Format Context
         conversations = []
         for msg in recent_history:
-            agent = msg.get('agent', 'Unknown')
-            text = msg.get('text', '')
+            agent = msg.get("agent", "Unknown")
+            text = msg.get("text", "")
             conversations.append(f"{agent}: {text}")
         conversation_block = "\n".join(conversations)
 
@@ -392,7 +409,7 @@ Output ONLY an integer.
             g_list = [f"'{desc}' ({prog}%)" for desc, prog in goals.items()]
             goals_block.append(f"- {agent_name}: {', '.join(g_list)}")
         goals_text = "\n".join(goals_block)
-        
+
         if not goals_text:
             return {}
 
@@ -410,8 +427,8 @@ Output ONLY an integer.
             "   - Critical shift (20%+): Total dominance or capitulation.\n\n"
             "output JSON ONLY in this exact format:\n"
             "{\n"
-            "  \"AgentName\": {\n"
-            "    \"Goal Keyword\": {\"delta\": int, \"reason\": \"Concise bureaucratic verdict (max 10 words)\"}\n"
+            '  "AgentName": {\n'
+            '    "Goal Keyword": {"delta": int, "reason": "Concise bureaucratic verdict (max 10 words)"}\n'
             "  }\n"
             "}"
         )
@@ -426,39 +443,47 @@ Output ONLY an integer.
             response_text = self.llm_service.generate_response(
                 model_name=self.system_model,
                 system_prompt=system_prompt,
-                user_message=user_prompt
+                user_message=user_prompt,
             )
 
             # Clean JSON
             if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
+                response_text = (
+                    response_text.split("```json")[1].split("```")[0].strip()
+                )
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
-            
+
             # Remove '+' signs if present in values
-            response_text = re.sub(r':\s*\+(\d+)', r': \1', response_text)
+            response_text = re.sub(r":\s*\+(\d+)", r": \1", response_text)
 
             deltas = json.loads(response_text)
-            
+
             # Validate structure
             validated_deltas = {}
             for agent, impacts in deltas.items():
-                if not isinstance(impacts, dict): continue
+                if not isinstance(impacts, dict):
+                    continue
                 validated_deltas[agent] = {}
                 for goal_key, data in impacts.items():
                     try:
                         if isinstance(data, dict):
                             validated_deltas[agent][goal_key] = {
                                 "delta": int(data.get("delta", 0)),
-                                "reason": str(data.get("reason", "Strategic shift"))
+                                "reason": str(data.get("reason", "Strategic shift")),
                             }
                         else:
                             # Fallback for simple int
-                            validated_deltas[agent][goal_key] = {"delta": int(data), "reason": "Strategic shift"}
+                            validated_deltas[agent][goal_key] = {
+                                "delta": int(data),
+                                "reason": "Strategic shift",
+                            }
                     except (ValueError, TypeError):
                         pass
-            
-            logger.info(f"[GAMEMASTER] Adjudicated Narrative. Verdicts: {validated_deltas}")
+
+            logger.info(
+                f"[GAMEMASTER] Adjudicated Narrative. Verdicts: {validated_deltas}"
+            )
             return validated_deltas
 
         except Exception as e:

@@ -28,7 +28,9 @@ class TestLLMFailureResilience:
         Service should arguably raise a specific error or return a safe fallback.
         """
         llm = LLMService()
-        with patch.object(llm, "_call_ollama", side_effect=ConnectionError("Ollama down")):
+        with patch.object(
+            llm, "_call_ollama", side_effect=ConnectionError("Ollama down")
+        ):
             # Method should raise or handle gracefully
             # If architecture defines a fallback (e.g. silent fail), test that.
             # If it defines a retry, test that.
@@ -45,33 +47,35 @@ class TestLLMFailureResilience:
         Agent should retry up to max_retries.
         """
         soul = SoulFactory.ares()
-        
-        # Mock dependencies to avoid ChromaDB/Real System init
-        with patch("core.agent.SubjectiveMemory"), \
-             patch("core.agent.IntegrityMonitor") as MockIntegrity, \
-             patch("core.agent.LLMService") as MockLLMConstructor:
-            
+
+        # Mock dependencies to avoid Remote Memory/Real System init
+        with (
+            patch("core.agent.SubjectiveMemory"),
+            patch("core.agent.IntegrityMonitor") as MockIntegrity,
+            patch("core.agent.LLMService") as MockLLMConstructor,
+        ):
+
             # Setup LLM Mock
             mock_llm = MagicMock(spec=LLMService)
             MockLLMConstructor.return_value = mock_llm
-            
+
             # Setup Integrity Mock (always approve)
             mock_integrity = MockIntegrity.return_value
             mock_integrity.check_integrity.return_value = {"approved": True}
-            
+
             # Mock LLM behavior: Fail, Fail, Success
             mock_llm.generate_response.side_effect = [
-                "", 
+                "",
                 Exception("LLM glitch"),
-                "Retried successfully."
+                "Retried successfully.",
             ]
 
             # Create Agent (will use mocks)
             agent = IronAgent("general_ares", event_bus)
             agent.soul = soul
-            
+
             result = agent.speak("Situation", "Context")
-            
+
             assert result["public_text"] == "Retried successfully."
             # Should have called LLM 3 times
             assert mock_llm.generate_response.call_count == 3
@@ -82,15 +86,17 @@ class TestLLMFailureResilience:
         Should default to 0 change, not crash.
         """
         from core.physics import GamemasterPhysics
-        
+
         mock_llm = MagicMock()
-        mock_llm.generate_response.return_value = '{"confidence_change": "HIGH", "stress_level_change": "LOW"}'
-        
+        mock_llm.generate_response.return_value = (
+            '{"confidence_change": "HIGH", "stress_level_change": "LOW"}'
+        )
+
         physics = GamemasterPhysics(mock_llm)
         soul = SoulFactory.midas()
-        
+
         result = physics.calculate_impact("Test input", soul)
-        
+
         # Should gracefully handle the bad types, likely defaulting to 0 or valid values
         # Implementation dependent, but shouldn't raise TypeError
         assert isinstance(result.get("confidence_change", 0), (int, float))

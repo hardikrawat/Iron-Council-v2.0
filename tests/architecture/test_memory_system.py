@@ -1,7 +1,7 @@
 """
 Layer 2: Memory System — Tests 7.1, 7.2
 =========================================
-Per ARCHITECTURE.md: "Subjective Memory stored in ChromaDB with agent isolation."
+Per ARCHITECTURE.md: "Subjective Memory stored in Turso DB with agent isolation."
 Per README: "Each agent's memory is private and queryable. One agent cannot recall another's memories."
 Per README: "Memories tagged with agent name, emotion, and timestamp."
 
@@ -23,7 +23,7 @@ from tests.helpers import capture_events
 def tmp_memory():
     """Fresh SubjectiveMemory in a temp directory to isolate from production data."""
     tmpdir = tempfile.mkdtemp()
-    db_path = os.path.join(tmpdir, "test_chroma_db")
+    db_path = os.path.join(tmpdir, "test_memory_db")
     bus = EventBus()
     memory = SubjectiveMemory(db_path=db_path, event_bus=bus)
     yield memory, bus
@@ -44,8 +44,12 @@ class TestMemoryIsolation:
             text="The chairman threatened to cut military spending.",
             emotion="anger",
         )
-        results = memory.recall_memories(agent_name="General Ares", query="military spending")
-        assert len(results) > 0, "Memory recall returned nothing — save/recall pipeline broken"
+        results = memory.recall_memories(
+            agent_name="General Ares", query="military spending"
+        )
+        assert (
+            len(results) > 0
+        ), "Memory recall returned nothing — save/recall pipeline broken"
         assert "military" in results[0].lower() or "spending" in results[0].lower()
 
     def test_memory_isolation_between_agents(self, tmp_memory):
@@ -65,21 +69,30 @@ class TestMemoryIsolation:
         )
 
         # Diplomat Dove must NOT see General Ares's private memory
-        dove_results = memory.recall_memories(agent_name="Diplomat Dove", query="undermine peace")
+        dove_results = memory.recall_memories(
+            agent_name="Diplomat Dove", query="undermine peace"
+        )
         for result in dove_results:
-            assert "secretly planning to undermine" not in result.lower(), \
-                "CRITICAL: Memory isolation violated — Dove can see Ares's private thoughts!"
+            assert (
+                "secretly planning to undermine" not in result.lower()
+            ), "CRITICAL: Memory isolation violated — Dove can see Ares's private thoughts!"
 
         # General Ares should see their own memory
-        ares_results = memory.recall_memories(agent_name="General Ares", query="undermine peace")
+        ares_results = memory.recall_memories(
+            agent_name="General Ares", query="undermine peace"
+        )
         assert len(ares_results) > 0, "Ares cannot recall their own memory"
 
     def test_multiple_memories_per_agent(self, tmp_memory):
         """Agent can store and recall multiple memories."""
         memory, bus = tmp_memory
         memory.save_memory("General Ares", "Budget meeting was intense.", "stress")
-        memory.save_memory("General Ares", "Alliance with Midas strengthened.", "satisfaction")
-        memory.save_memory("General Ares", "Dove opposed my proposal loudly.", "frustration")
+        memory.save_memory(
+            "General Ares", "Alliance with Midas strengthened.", "satisfaction"
+        )
+        memory.save_memory(
+            "General Ares", "Dove opposed my proposal loudly.", "frustration"
+        )
 
         results = memory.recall_memories(agent_name="General Ares", query="meeting")
         assert len(results) > 0, "Multiple memories not recallable"

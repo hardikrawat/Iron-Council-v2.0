@@ -43,14 +43,21 @@ class TestOODASubscriptions:
             bus = EventBus()
             hb = Heartbeat(bus)
             original_join = os.path.join
-            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: original_join(tmpdir, *args[1:]),
+            ):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
             loop = OODALoop(agent, bus, hb)
             # OODA should have a memory buffer that receives events
-            assert hasattr(loop, "memory"), "OODA must have a memory component — required by architecture"
-            assert hasattr(loop.memory, "buffer"), "OODA memory must have a buffer — required by architecture"
+            assert hasattr(
+                loop, "memory"
+            ), "OODA must have a memory component — required by architecture"
+            assert hasattr(
+                loop.memory, "buffer"
+            ), "OODA memory must have a buffer — required by architecture"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -73,11 +80,12 @@ class TestPhysicsSystemEventDriven:
             physics=physics,
             agents=agents,
             transcript=[],
-            on_update=lambda: None
+            on_update=lambda: None,
         )
         # PhysicsSystem should have registered event handlers
-        assert hasattr(ps, "start") and asyncio.iscoroutinefunction(ps.start), \
-            "PhysicsSystem.start must be async — required for EventBus integration"
+        assert hasattr(ps, "start") and asyncio.iscoroutinefunction(
+            ps.start
+        ), "PhysicsSystem.start must be async — required for EventBus integration"
 
     def test_physics_system_has_stat_update_broadcast(self):
         """
@@ -92,7 +100,7 @@ class TestPhysicsSystemEventDriven:
             physics=physics,
             agents=[],
             transcript=[],
-            on_update=lambda: None
+            on_update=lambda: None,
         )
         # The system should be set up to publish status events
         assert ps.event_bus is bus, "PhysicsSystem must reference the shared EventBus"
@@ -123,7 +131,10 @@ class TestOODAPhysicsPipelineIntegration:
             bus = EventBus()
             hb = Heartbeat(bus)
             original_join = os.path.join
-            with patch("core.agent.os.path.join", side_effect=lambda *args: original_join(tmpdir, *args[1:])):
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: original_join(tmpdir, *args[1:]),
+            ):
                 agent = IronAgent("general_ares", bus)
                 agent.soul = soul
 
@@ -131,7 +142,9 @@ class TestOODAPhysicsPipelineIntegration:
 
             # Manually trigger the WORLD_EVENT handler
             async def test_flow():
-                await bus.publish(EventType.WORLD_EVENT, {"content": "Budget cut announcement"})
+                await bus.publish(
+                    EventType.WORLD_EVENT, {"content": "Budget cut announcement"}
+                )
                 await asyncio.sleep(0.1)
 
             await test_flow()

@@ -45,37 +45,44 @@ class TestStressCascade:
             stress_change = result.get("stress_level_change", 0)
             total_stress_delta += stress_change
 
-        assert total_stress_delta > 0, \
-            "Three hostile inputs produced no stress increase — Physics Engine not detecting hostility"
+        assert (
+            total_stress_delta > 0
+        ), "Three hostile inputs produced no stress increase — Physics Engine not detecting hostility"
 
     def test_stressed_agent_loses_confidence(self, physics_engine):
         """
         Per Architecture: Extreme stress should erode confidence.
         A general under constant attack should become less decisive.
         """
-        stressed_soul = SoulFactory.ares(confidence=60, paranoia=50, stress=80, energy=30)
+        stressed_soul = SoulFactory.ares(
+            confidence=60, paranoia=50, stress=80, energy=30
+        )
 
         result = physics_engine.calculate_impact(
             "Your entire military plan was a catastrophic failure. The council is demanding your resignation.",
-            stressed_soul
+            stressed_soul,
         )
         # Under high stress with hostile input, confidence should decrease
         conf_change = result.get("confidence_change", 0)
-        assert conf_change <= 0, \
-            f"Already-stressed agent GAINED confidence from hostile input (delta={conf_change}) — incorrect"
+        assert (
+            conf_change <= 0
+        ), f"Already-stressed agent GAINED confidence from hostile input (delta={conf_change}) — incorrect"
 
     def test_energy_drain_under_stress(self, physics_engine):
         """
         Per Architecture: Energy should decrease when stress is high.
         Prevents "energy death spiral" but energy should still drop.
         """
-        exhausted_soul = SoulFactory.ares(confidence=30, paranoia=70, stress=90, energy=15)
+        exhausted_soul = SoulFactory.ares(
+            confidence=30, paranoia=70, stress=90, energy=15
+        )
 
         result = physics_engine.calculate_impact(
             "The situation is deteriorating rapidly. Make a decision now.",
-            exhausted_soul
+            exhausted_soul,
         )
         energy_change = result.get("energy_change", 0)
         # Under extreme stress with low energy, energy should not INCREASE from pressure
-        assert energy_change <= 5, \
-            "Agent with stress=90, energy=15 gained significant energy from pressure — illogical"
+        assert (
+            energy_change <= 5
+        ), "Agent with stress=90, energy=15 gained significant energy from pressure — illogical"

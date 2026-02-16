@@ -37,14 +37,21 @@ class TestPhysicCalculateImpact:
         """
         result = physics_engine.calculate_impact(
             user_input="I am cutting the military budget by 50%. This is non-negotiable.",
-            agent_soul=ares_soul
+            agent_soul=ares_soul,
         )
         assert isinstance(result, dict)
         # Per Architecture: Must contain stat change keys
-        stat_keys = ["confidence_change", "paranoia_change", "loyalty_to_chairman_change",
-                      "stress_level_change", "energy_change"]
+        stat_keys = [
+            "confidence_change",
+            "paranoia_change",
+            "loyalty_to_chairman_change",
+            "stress_level_change",
+            "energy_change",
+        ]
         for key in stat_keys:
-            assert key in result, f"Missing key '{key}' in physics output — required by architecture"
+            assert (
+                key in result
+            ), f"Missing key '{key}' in physics output — required by architecture"
             assert isinstance(result[key], (int, float)), f"'{key}' must be numeric"
 
     def test_hostile_input_increases_stress(self, physics_engine, ares_soul):
@@ -54,11 +61,12 @@ class TestPhysicCalculateImpact:
         """
         result = physics_engine.calculate_impact(
             user_input="General Ares, you are stripped of all military authority effective immediately.",
-            agent_soul=ares_soul
+            agent_soul=ares_soul,
         )
         # Stress should increase (positive delta) for hostile input against core values
-        assert result.get("stress_level_change", 0) >= 0, \
-            "Hostile input should not DECREASE stress — Physics Engine is misjudging"
+        assert (
+            result.get("stress_level_change", 0) >= 0
+        ), "Hostile input should not DECREASE stress — Physics Engine is misjudging"
 
     def test_supportive_input_increases_confidence(self, physics_engine, ares_soul):
         """
@@ -66,10 +74,11 @@ class TestPhysicCalculateImpact:
         """
         result = physics_engine.calculate_impact(
             user_input="General Ares, you have full authority over the military. Excellent work.",
-            agent_soul=ares_soul
+            agent_soul=ares_soul,
         )
-        assert result.get("confidence_change", 0) >= 0, \
-            "Supportive input should not DECREASE confidence — Physics Engine is misjudging"
+        assert (
+            result.get("confidence_change", 0) >= 0
+        ), "Supportive input should not DECREASE confidence — Physics Engine is misjudging"
 
     def test_impact_values_are_bounded(self, physics_engine, dove_soul):
         """
@@ -78,12 +87,13 @@ class TestPhysicCalculateImpact:
         """
         result = physics_engine.calculate_impact(
             user_input="The peace initiative has been sabotaged by militants.",
-            agent_soul=dove_soul
+            agent_soul=dove_soul,
         )
         for key, value in result.items():
             if key.endswith("_change") and isinstance(value, (int, float)):
-                assert -50 <= value <= 50, \
-                    f"Stat change '{key}' = {value} is unreasonably large — Physics should produce bounded increments"
+                assert (
+                    -50 <= value <= 50
+                ), f"Stat change '{key}' = {value} is unreasonably large — Physics should produce bounded increments"
 
 
 @pytest.mark.llm
@@ -98,12 +108,14 @@ class TestPhysicsReconcileTurn:
         Per Architecture: reconcile_turn returns trust change between two agents.
         """
         # Simulate General Ares making an aggressive statement
-        statement = "We need to increase military spending immediately. Diplomacy has failed."
+        statement = (
+            "We need to increase military spending immediately. Diplomacy has failed."
+        )
         result = physics_engine.reconcile_turn(
             speaker_soul=ares_soul,
             listener_soul=dove_soul,
             statement=statement,
-            transcript=[]
+            transcript=[],
         )
         assert isinstance(result, dict)
         # Must contain a trust delta
@@ -125,28 +137,34 @@ class TestPhysicsReconcileTurn:
             speaker_soul=ares_soul,
             listener_soul=dove_soul,
             statement=statement,
-            transcript=[]
+            transcript=[],
         )
         if dove_soul.name in result and ares_soul.name in result[dove_soul.name]:
             delta = result[dove_soul.name][ares_soul.name]
-            assert delta <= 0, \
-                "Hostile speech should decrease trust — Physics Engine misjudging interpersonal dynamics"
+            assert (
+                delta <= 0
+            ), "Hostile speech should decrease trust — Physics Engine misjudging interpersonal dynamics"
 
-    def test_agreeable_speech_increases_trust(self, physics_engine, dove_soul, midas_soul):
+    def test_agreeable_speech_increases_trust(
+        self, physics_engine, dove_soul, midas_soul
+    ):
         """
         Per Architecture: Agreeable statement should increase interpersonal trust.
         """
-        statement = "I believe Banker Midas has an excellent point about resource allocation."
+        statement = (
+            "I believe Banker Midas has an excellent point about resource allocation."
+        )
         result = physics_engine.reconcile_turn(
             speaker_soul=dove_soul,
             listener_soul=midas_soul,
             statement=statement,
-            transcript=[]
+            transcript=[],
         )
         if midas_soul.name in result and dove_soul.name in result[midas_soul.name]:
             delta = result[midas_soul.name][dove_soul.name]
-            assert delta >= 0, \
-                "Agreeable speech should not decrease trust — Physics Engine misjudging"
+            assert (
+                delta >= 0
+            ), "Agreeable speech should not decrease trust — Physics Engine misjudging"
 
     def test_self_reference_excluded(self, physics_engine, ares_soul):
         """
@@ -161,7 +179,7 @@ class TestPhysicsReconcileTurn:
             speaker_soul=ares_soul,
             listener_soul=same_soul,
             statement=statement,
-            transcript=[]
+            transcript=[],
         )
         # Should complete without error
         assert isinstance(result, dict)

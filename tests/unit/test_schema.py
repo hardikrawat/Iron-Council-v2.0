@@ -14,6 +14,7 @@ from core.schema import AgentSoul, DynamicStats, RelationshipModel, Goal
 
 # ── Stat Clamping (Architecture: "Mutable stats constrained between 0 and 100") ──
 
+
 class TestStatClamping:
     """Per docs: DynamicStats fields are constrained between 0 and 100."""
 
@@ -60,6 +61,7 @@ class TestStatClamping:
 
 # ── Relationship Clamping (Architecture: trust_score between -100 and 100) ──
 
+
 class TestRelationshipClamping:
     """Per docs: Trust scores clamped between -100 and +100."""
 
@@ -86,10 +88,14 @@ class TestRelationshipClamping:
         """Interaction summary updates when provided."""
         soul = make_soul()
         soul.update_relationship("Banker Midas", 5, summary="Agreed on budget cuts")
-        assert "budget" in soul.relationships["Banker Midas"].last_interaction_summary.lower()
+        assert (
+            "budget"
+            in soul.relationships["Banker Midas"].last_interaction_summary.lower()
+        )
 
 
 # ── Goal Progress (Architecture: "Goals with progress >= 100 are auto-deactivated") ──
+
 
 class TestGoalProgress:
     """Per docs: Goal progress clamped 0-100, auto-deactivation at 100."""
@@ -131,6 +137,7 @@ class TestGoalProgress:
 
 # ── Pydantic Validation (Architecture: Schema enforcement) ──
 
+
 class TestPydanticValidation:
     """Per README: Pydantic enforces data validation and schema constraints."""
 
@@ -166,6 +173,7 @@ class TestPydanticValidation:
 
 
 # ── Serialization (Architecture: "Agent Soul persisted as JSON") ──
+
 
 class TestSerialization:
     """Per docs: Soul state must roundtrip cleanly to/from JSON."""

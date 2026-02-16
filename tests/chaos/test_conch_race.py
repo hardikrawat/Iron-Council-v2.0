@@ -28,9 +28,9 @@ class TestConchRaceCondition:
         """
         lock = SpeakingLock()
         lock.ttl = 0.5  # Short TTL for test
-        
+
         results = []
-        
+
         def try_acquire(agent_id):
             success = lock.acquire(agent_id)
             if success:
@@ -45,17 +45,17 @@ class TestConchRaceCondition:
             t = threading.Thread(target=try_acquire, args=(f"agent_{i}",))
             threads.append(t)
             t.start()
-            
+
         for t in threads:
             t.join()
-            
-        # Due to timing, we can't guarantee *which* one gets it first, 
+
+        # Due to timing, we can't guarantee *which* one gets it first,
         # but AT ANY GIVEN MOMENT, only one should have held it.
         # Since we release immediately, multiple COULD succeed sequentially.
         # But we must verify no overlapping ownership (hard to do without detailed timing logs).
         # A simpler check: Did at least one succeed without crashing?
         assert len(results) > 0, "No agent managed to acquire lock under load"
-        
+
         # Verify lock is free at the end
         assert not lock.is_locked()
 
@@ -68,15 +68,17 @@ class TestConchRaceCondition:
         hb = Heartbeat(bus)
         lock = hb.speaking_lock if hasattr(hb, "speaking_lock") else hb.lock
         lock.ttl = 0.1
-        
+
         # Agent acquires and 'crashes' (sleeps longer than TTL)
         lock.acquire("crashed_agent")
         time.sleep(0.2)
-        
+
         # New agent tries to acquire
         # Assuming heartbeat check runs or acquire logic checks expiry
         success = lock.acquire("new_agent")
-        assert success is True, "Zombie lock prevented new acquisition — TTL expiration failed"
+        assert (
+            success is True
+        ), "Zombie lock prevented new acquisition — TTL expiration failed"
         assert lock.current_holder == "new_agent"
 
     def test_renew_extends_lock(self):
@@ -85,12 +87,12 @@ class TestConchRaceCondition:
         """
         lock = SpeakingLock()
         lock.ttl = 0.2
-        
+
         lock.acquire("slow_agent")
         time.sleep(0.15)
         lock.renew("slow_agent")  # Extend by another TTL period
         time.sleep(0.15)
-        
+
         # Total time 0.3s > initial 0.2s, but renew saved it
         assert lock.is_locked() is True
         assert lock.current_holder == "slow_agent"

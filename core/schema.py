@@ -7,6 +7,7 @@ class RelationshipModel(BaseModel):
     Rich relationship with memory and hidden intent.
     Evolves dynamically via the Physics Engine and Dream Phase.
     """
+
     trust_score: int = Field(default=0, ge=-100, le=100)
     last_interaction_summary: str = ""
     hidden_agenda: Optional[str] = None  # e.g., "Planning to undermine"
@@ -17,6 +18,7 @@ class Goal(BaseModel):
     Hierarchical agent goal. Progress is driven by the Physics Engine.
     Goals with progress >= 100 are auto-deactivated.
     """
+
     description: str
     priority: Literal["strategic", "tactical"] = "tactical"
     active: bool = True
@@ -27,6 +29,7 @@ class DynamicStats(BaseModel):
     """
     Mutable stats for an agent, constrained between 0 and 100.
     """
+
     confidence: int = Field(default=50, ge=0, le=100)
     paranoia: int = Field(default=10, ge=0, le=100)
     loyalty_to_chairman: int = Field(default=50, ge=0, le=100)
@@ -39,6 +42,7 @@ class AgentSoul(BaseModel):
     The core identity and state of an agent.
     BDI-inspired: Beliefs (relationships), Desires (goals), Intentions (via LLM).
     """
+
     name: str
     archetype: str
     base_model: str
@@ -58,7 +62,9 @@ class AgentSoul(BaseModel):
         else:
             raise AttributeError(f"Stat '{stat_name}' does not exist in DynamicStats.")
 
-    def update_relationship(self, agent_name: str, amount: int, summary: str = "", hidden_agenda: str = None):
+    def update_relationship(
+        self, agent_name: str, amount: int, summary: str = "", hidden_agenda: str = None
+    ):
         """
         Safely modify a relationship's trust_score by clamping between -100 and 100.
         Optionally updates the last_interaction_summary and hidden_agenda.
@@ -120,7 +126,4 @@ class AgentSoul(BaseModel):
         """
         Returns relationships as plain dicts for JSON serialization / frontend.
         """
-        return {
-            name: rel.model_dump()
-            for name, rel in self.relationships.items()
-        }
+        return {name: rel.model_dump() for name, rel in self.relationships.items()}

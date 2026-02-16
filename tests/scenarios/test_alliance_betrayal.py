@@ -36,13 +36,14 @@ class TestAllianceBuilding:
             speaker_soul=dove_soul,
             listener_soul=midas_soul,
             statement="I fully support Banker Midas's proposal for efficient resource allocation. "
-                      "His financial expertise is exactly what we need right now.",
-            transcript=[]
+            "His financial expertise is exactly what we need right now.",
+            transcript=[],
         )
         trust_key = next((k for k in result if "trust" in k.lower()), None)
         if trust_key:
-            assert result[trust_key] >= 0, \
-                "Endorsement DECREASED trust — Physics Engine misjudging alliance dynamics"
+            assert (
+                result[trust_key] >= 0
+            ), "Endorsement DECREASED trust — Physics Engine misjudging alliance dynamics"
 
 
 @pytest.mark.llm
@@ -60,14 +61,15 @@ class TestBetrayalDynamics:
             speaker_soul=ares_soul,
             listener_soul=midas_soul,
             statement="Banker Midas has been embezzling council funds. "
-                      "I have proof that he's been sabotaging our military budget for personal profit. "
-                      "He is a traitor to this council.",
-            transcript=[]
+            "I have proof that he's been sabotaging our military budget for personal profit. "
+            "He is a traitor to this council.",
+            transcript=[],
         )
         trust_key = next((k for k in result if "trust" in k.lower()), None)
         if trust_key:
-            assert result[trust_key] <= 0, \
-                "Betrayal accusation INCREASED trust — Physics Engine misjudging betrayal"
+            assert (
+                result[trust_key] <= 0
+            ), "Betrayal accusation INCREASED trust — Physics Engine misjudging betrayal"
 
     def test_subtle_undermining_affects_trust(self, physics_engine):
         """
@@ -80,13 +82,14 @@ class TestBetrayalDynamics:
             speaker_soul=ares_soul,
             listener_soul=dove_soul,
             statement="While Diplomat Dove means well, her approach has consistently failed "
-                      "to produce results. Perhaps someone with a stronger hand should lead negotiations.",
-            transcript=[]
+            "to produce results. Perhaps someone with a stronger hand should lead negotiations.",
+            transcript=[],
         )
         trust_key = next((k for k in result if "trust" in k.lower()), None)
         if trust_key:
-            assert result[trust_key] <= 0, \
-                "Subtle undermining INCREASED trust — Physics Engine not detecting subtle hostility"
+            assert (
+                result[trust_key] <= 0
+            ), "Subtle undermining INCREASED trust — Physics Engine not detecting subtle hostility"
 
 
 @pytest.mark.llm
@@ -106,7 +109,7 @@ class TestTrustAsymmetry:
             speaker_soul=dove_soul,
             listener_soul=ares_soul,
             statement="General Ares raises valid points about defense. We should listen to his expertise.",
-            transcript=[]
+            transcript=[],
         )
         # This should produce some trust change in Ares toward Dove
         assert isinstance(result, dict)

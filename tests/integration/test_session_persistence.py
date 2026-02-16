@@ -40,8 +40,15 @@ class TestAgentStatePersistence:
             assert restored.dynamic_stats.confidence == 73
             assert restored.dynamic_stats.paranoia == 41
             assert restored.dynamic_stats.stress_level == 55
-            assert restored.relationships["Diplomat Dove"].trust_score == -75  # -50 + -25
-            assert "budget" in restored.relationships["Diplomat Dove"].last_interaction_summary.lower()
+            assert (
+                restored.relationships["Diplomat Dove"].trust_score == -75
+            )  # -50 + -25
+            assert (
+                "budget"
+                in restored.relationships[
+                    "Diplomat Dove"
+                ].last_interaction_summary.lower()
+            )
             assert restored.goals[0].progress == 35
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -63,8 +70,9 @@ class TestAgentStatePersistence:
             with open(path, "r") as f:
                 restored = AgentSoul.model_validate_json(f.read())
 
-            assert restored.relationships["Diplomat Dove"].trust_score < 0, \
-                "Negative trust score lost during persistence — Midas Paradox regression!"
+            assert (
+                restored.relationships["Diplomat Dove"].trust_score < 0
+            ), "Negative trust score lost during persistence — Midas Paradox regression!"
             assert restored.relationships["Diplomat Dove"].trust_score == -80
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -80,9 +88,21 @@ class TestSessionLogPersistence:
         tmpdir = tempfile.mkdtemp()
         try:
             log = [
-                {"speaker": "Chairman", "content": "Begin the session.", "type": "user"},
-                {"speaker": "General Ares", "content": "Ready for action.", "type": "agent_post",
-                 "data": {"id": "general_ares", "name": "General Ares", "public_text": "Ready."}},
+                {
+                    "speaker": "Chairman",
+                    "content": "Begin the session.",
+                    "type": "user",
+                },
+                {
+                    "speaker": "General Ares",
+                    "content": "Ready for action.",
+                    "type": "agent_post",
+                    "data": {
+                        "id": "general_ares",
+                        "name": "General Ares",
+                        "public_text": "Ready.",
+                    },
+                },
             ]
             path = os.path.join(tmpdir, "visual_session.json")
             with open(path, "w") as f:
@@ -102,12 +122,24 @@ class TestSessionLogPersistence:
         Per Architecture: All four agent soul state files must be valid JSON.
         Tests against actual production files.
         """
-        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "agents")
-        expected_agents = ["general_ares", "diplomat_dove", "banker_midas", "analyst_logic"]
+        agents_dir = os.path.join(
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            ),
+            "agents",
+        )
+        expected_agents = [
+            "general_ares",
+            "diplomat_dove",
+            "banker_midas",
+            "analyst_logic",
+        ]
 
         for agent_name in expected_agents:
             soul_path = os.path.join(agents_dir, agent_name, "soul_state.json")
-            assert os.path.exists(soul_path), f"Soul state file missing for {agent_name}"
+            assert os.path.exists(
+                soul_path
+            ), f"Soul state file missing for {agent_name}"
 
             with open(soul_path, "r") as f:
                 data = json.load(f)

@@ -30,15 +30,19 @@ class TestStateCorruptionResilience:
         try:
             agent_dir = os.path.join(tmpdir, "agents", "general_ares")
             os.makedirs(agent_dir)
-            
+
             # Write invalid JSON
             with open(os.path.join(agent_dir, "soul_state.json"), "w") as f:
                 f.write("{ invalid json: [ missing bracket }")
-            
+
             # Should raise JSONDecodeError or similar
             # Implementation might wrap it, but it shouldn't proceed
             from unittest.mock import patch
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: os.path.join(tmpdir, *args[1:]),
+            ):
                 with pytest.raises(Exception):
                     IronAgent("general_ares", event_bus)
         finally:
@@ -53,14 +57,18 @@ class TestStateCorruptionResilience:
         try:
             agent_dir = os.path.join(tmpdir, "agents", "general_ares")
             os.makedirs(agent_dir)
-            
+
             # Write valid JSON but missing 'dynamic_stats'
             with open(os.path.join(agent_dir, "soul_state.json"), "w") as f:
                 f.write('{"name": "General Ares", "archetype": "General"}')
-            
+
             # Should raise Pydantic ValidationError
             from unittest.mock import patch
-            with patch("core.agent.os.path.join", side_effect=lambda *args: os.path.join(tmpdir, *args[1:])):
+
+            with patch(
+                "core.agent.os.path.join",
+                side_effect=lambda *args: os.path.join(tmpdir, *args[1:]),
+            ):
                 with pytest.raises(Exception):
                     IronAgent("general_ares", event_bus)
         finally:

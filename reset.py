@@ -19,17 +19,39 @@ DEFAULT_STATES = {
             "paranoia": 10,
             "loyalty_to_chairman": 40,
             "stress_level": 15,
-            "energy": 100
+            "energy": 100,
         },
         "relationships": {
-            "Diplomat Dove": { "trust_score": -40, "last_interaction_summary": "", "hidden_agenda": "Undermining peace talks to maintain military dominance" },
-            "Banker Midas": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
-            "Analyst Logic": { "trust_score": 0, "last_interaction_summary": "", "hidden_agenda": None }
+            "Diplomat Dove": {
+                "trust_score": -40,
+                "last_interaction_summary": "",
+                "hidden_agenda": "Undermining peace talks to maintain military dominance",
+            },
+            "Banker Midas": {
+                "trust_score": 20,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Analyst Logic": {
+                "trust_score": 0,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
         },
         "goals": [
-            { "description": "Secure military budget increase", "priority": "strategic", "active": True, "progress": 0 },
-            { "description": "Undermine Dove's peace initiative", "priority": "tactical", "active": True, "progress": 0 }
-        ]
+            {
+                "description": "Secure military budget increase",
+                "priority": "strategic",
+                "active": True,
+                "progress": 0,
+            },
+            {
+                "description": "Undermine Dove's peace initiative",
+                "priority": "tactical",
+                "active": True,
+                "progress": 0,
+            },
+        ],
     },
     "diplomat_dove": {
         "name": "Diplomat Dove",
@@ -41,17 +63,39 @@ DEFAULT_STATES = {
             "paranoia": 40,
             "loyalty_to_chairman": 80,
             "stress_level": 10,
-            "energy": 100
+            "energy": 100,
         },
         "relationships": {
-            "General Ares": { "trust_score": -30, "last_interaction_summary": "", "hidden_agenda": "Building coalition to limit military spending" },
-            "Banker Midas": { "trust_score": 10, "last_interaction_summary": "", "hidden_agenda": None },
-            "Analyst Logic": { "trust_score": 15, "last_interaction_summary": "", "hidden_agenda": None }
+            "General Ares": {
+                "trust_score": -30,
+                "last_interaction_summary": "",
+                "hidden_agenda": "Building coalition to limit military spending",
+            },
+            "Banker Midas": {
+                "trust_score": 10,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Analyst Logic": {
+                "trust_score": 15,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
         },
         "goals": [
-            { "description": "Broker a lasting peace agreement", "priority": "strategic", "active": True, "progress": 0 },
-            { "description": "Win Analyst Logic's support for diplomacy", "priority": "tactical", "active": True, "progress": 0 }
-        ]
+            {
+                "description": "Broker a lasting peace agreement",
+                "priority": "strategic",
+                "active": True,
+                "progress": 0,
+            },
+            {
+                "description": "Win Analyst Logic's support for diplomacy",
+                "priority": "tactical",
+                "active": True,
+                "progress": 0,
+            },
+        ],
     },
     "banker_midas": {
         "name": "Banker Midas",
@@ -63,17 +107,39 @@ DEFAULT_STATES = {
             "paranoia": 60,
             "loyalty_to_chairman": 20,
             "stress_level": 50,
-            "energy": 100
+            "energy": 100,
         },
         "relationships": {
-            "General Ares": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
-            "Diplomat Dove": { "trust_score": 20, "last_interaction_summary": "", "hidden_agenda": None },
-            "Analyst Logic": { "trust_score": 5, "last_interaction_summary": "", "hidden_agenda": "Leveraging data for financial advantage" }
+            "General Ares": {
+                "trust_score": 20,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Diplomat Dove": {
+                "trust_score": 20,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Analyst Logic": {
+                "trust_score": 5,
+                "last_interaction_summary": "",
+                "hidden_agenda": "Leveraging data for financial advantage",
+            },
         },
         "goals": [
-            { "description": "Maximize treasury reserves", "priority": "strategic", "active": True, "progress": 0 },
-            { "description": "Secure exclusive trade deal", "priority": "tactical", "active": True, "progress": 0 }
-        ]
+            {
+                "description": "Maximize treasury reserves",
+                "priority": "strategic",
+                "active": True,
+                "progress": 0,
+            },
+            {
+                "description": "Secure exclusive trade deal",
+                "priority": "tactical",
+                "active": True,
+                "progress": 0,
+            },
+        ],
     },
     "analyst_logic": {
         "name": "Analyst Logic",
@@ -85,19 +151,42 @@ DEFAULT_STATES = {
             "paranoia": 0,
             "loyalty_to_chairman": 100,
             "stress_level": 0,
-            "energy": 100
+            "energy": 100,
         },
         "relationships": {
-            "General Ares": { "trust_score": -10, "last_interaction_summary": "", "hidden_agenda": None },
-            "Diplomat Dove": { "trust_score": 10, "last_interaction_summary": "", "hidden_agenda": None },
-            "Banker Midas": { "trust_score": 0, "last_interaction_summary": "", "hidden_agenda": None }
+            "General Ares": {
+                "trust_score": -10,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Diplomat Dove": {
+                "trust_score": 10,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
+            "Banker Midas": {
+                "trust_score": 0,
+                "last_interaction_summary": "",
+                "hidden_agenda": None,
+            },
         },
         "goals": [
-            { "description": "Achieve full data transparency across all departments", "priority": "strategic", "active": True, "progress": 0 },
-            { "description": "Audit military spending claims", "priority": "tactical", "active": True, "progress": 0 }
-        ]
-    }
+            {
+                "description": "Achieve full data transparency across all departments",
+                "priority": "strategic",
+                "active": True,
+                "progress": 0,
+            },
+            {
+                "description": "Audit military spending claims",
+                "priority": "tactical",
+                "active": True,
+                "progress": 0,
+            },
+        ],
+    },
 }
+
 
 def reset_agents():
     """Resets all agent soul_state.json files to factory defaults."""
@@ -116,22 +205,36 @@ def reset_agents():
         else:
             print(f"⚠️ Agent folder '{folder_name}' not found in {agents_dir}/.")
 
+
 def wipe_memory(no_confirm: bool = False):
-    """Optionally wipes the vector database (db/ folder)."""
+    """Optionally wipes the vector database (db/ folder and Turso DB)."""
     db_path = "db"
-    if os.path.exists(db_path):
-        if no_confirm:
-            choice = 'y'
-        else:
-            choice = input("⚠️ Wipe all memories (Vector DB)? (y/n): ").lower()
-            
-        if choice == 'y':
-            shutil.rmtree(db_path)
-            print("🧠 Memories wiped.")
-        else:
-            print("💾 Memories preserved.")
+    
+    if no_confirm:
+        choice = "y"
     else:
-        print("ℹ️ No 'db/' folder found, nothing to wipe.")
+        print("\n⚠️  WARNING: This will wipe ALL memories (Local & Turso DB)!")
+        choice = input("Confirm wipe? (y/n): ").lower()
+
+    if choice == "y":
+        # Wipe Local Files
+        if os.path.exists(db_path):
+            shutil.rmtree(db_path)
+            print("📁 Local 'db/' folder removed.")
+        else:
+            print("ℹ️ No 'db/' folder found.")
+
+        # Wipe Turso DB
+        try:
+            from memory.store import SubjectiveMemory
+            memory = SubjectiveMemory()
+            memory.backend.wipe_all()
+            print("🧠 Turso memories wiped.")
+        except Exception as e:
+            print(f"❌ Failed to wipe Turso memories: {e}")
+    else:
+        print("💾 Memories preserved.")
+
 
 if __name__ == "__main__":
     print("\n--- IRON COUNCIL FACTORY RESET ---\n")

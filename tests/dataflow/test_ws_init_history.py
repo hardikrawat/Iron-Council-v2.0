@@ -28,9 +28,9 @@ class TestInitPayload:
             SoulFactory.ares(),
             SoulFactory.dove(),
             SoulFactory.midas(),
-            SoulFactory.logic()
+            SoulFactory.logic(),
         ]
-        
+
         # Simulate server constructing the init payload
         agents_data = []
         for soul in souls:
@@ -47,7 +47,7 @@ class TestInitPayload:
             "type": "init",
             "agents": agents_data,
             "history": [],
-            "system_log": []
+            "system_log": [],
         }
 
         assert len(payload["agents"]) == 4
@@ -66,9 +66,9 @@ class TestInitPayload:
         agent_data = soul.model_dump()
         agent_data["id"] = "general_ares"
         agent_data["relationships"] = soul.get_serializable_relationships()
-        
+
         payload = {"type": "init", "agents": [agent_data]}
-        
+
         target = payload["agents"][0]
         assert "id" in target
         assert "name" in target
@@ -94,15 +94,12 @@ class TestHistoryPayload:
                 "name": "General Ares",
                 "public_text": "Historical message.",
                 "hidden_text": "",
-                "timestamp": "2023-01-01T12:00:00"
-            }
+                "timestamp": "2023-01-01T12:00:00",
+            },
         }
-        
-        payload = {
-            "type": "init",
-            "history": [history_item]
-        }
-        
+
+        payload = {"type": "init", "history": [history_item]}
+
         post = payload["history"][0]["data"]
         # Must have fields required by Post.jsx
         assert "name" in post
