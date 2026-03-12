@@ -132,7 +132,7 @@ class LLMService:
             return f"CLOUD:{requested_model}"
         # Default
         if self.gemini_enabled and not self.openai_client:
-            return "CLOUD:gemini-2.0-flash"
+            return "CLOUD:gemini-flash-latest"
         return "CLOUD:gpt-3.5-turbo"
 
     def generate_response(
@@ -225,10 +225,10 @@ class LLMService:
                     )
                 elif self.gemini_enabled and not self.openai_client:
                     logger.info(
-                        f"[LLM] Routing unknown model '{model_name}' to Gemini Default (gemini-2.0-flash)"
+                        f"[LLM] Routing unknown model '{model_name}' to Gemini Default (gemini-flash-latest)"
                     )
                     response_content = self._generate_gemini(
-                        "gemini-2.0-flash", system_prompt, user_message
+                        "gemini-flash-latest", system_prompt, user_message
                     )
                 else:
                     logger.warning(
@@ -661,7 +661,7 @@ class LLMService:
                     async for chunk in metric_wrapper(
                         self._run_blocking_stream(
                             self._generate_gemini_stream_blocking,
-                            "gemini-2.0-flash",
+                            "gemini-flash-latest",
                             system_prompt,
                             user_message,
                         )

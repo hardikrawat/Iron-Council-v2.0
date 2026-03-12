@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import Typewriter from './Typewriter';
 
 const TRIPCODES = {
     "General Ares": "!WARGOD",
@@ -65,7 +66,7 @@ const Post = ({ post }) => {
                 {/* Content */}
                 <div className="font-sans text-[13px] leading-snug whitespace-pre-wrap text-black">
                     <div className="mb-1">
-                        {publicText}
+                        <Typewriter text={publicText} isStreaming={post.isStreaming} />
                     </div>
 
                     {hasHiddenLayer && (
@@ -74,7 +75,7 @@ const Post = ({ post }) => {
                                 {/* The Thought Stream: Indigo theme for 'Neural' activity */}
                                 <div className="bg-[#1e1b4b] text-[#a5b4fc] group-hover/spoiler:text-white transition-colors duration-300 ease-in p-2 font-mono text-xs border-l-2 border-indigo-500">
                                     <span className="opacity-50 select-none mr-2">{'>'}</span>
-                                    {hiddenText}
+                                    <Typewriter text={hiddenText} isStreaming={post.isStreaming} speed={20} />
                                 </div>
                                 <div className="absolute top-0 right-0 text-[9px] text-indigo-400 opacity-70 pointer-events-none group-hover/spoiler:opacity-0 pr-1 pt-1">
                                     [THOUGHT STREAM]

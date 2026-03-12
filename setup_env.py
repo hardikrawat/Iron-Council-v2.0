@@ -23,16 +23,16 @@ def setup_env(force=False):
     print("Detected missing configuration. Let's set up your AI connection.\n")
 
     print("Choose your AI Provider:")
-    print("1. Cloud (OpenAI / Anthropic) - Best for reasoning")
-    print("2. Local (Ollama) - Free, private, runs on your machine")
-    print("3. Cloud (Google Gemini) - Fast, generous free tier")
+    print("1. Cloud (OpenAI / Anthropic) - (Unstable/WIP)")
+    print("2. Local (Ollama) - (Recommended >= 7B, eg: qwen2.5:14b)")
+    print("3. Cloud (Google Gemini) - (Recommended)")
 
     choice = input("\nEnter choice (1, 2, or 3): ").strip()
 
     env_content = []
 
     if choice == "1":
-        print("\n[Cloud Setup - OpenAI/Anthropic]")
+        print("\n[Cloud Setup - OpenAI/Anthropic] - (Unstable/WIP)")
         openai = input("Enter OpenAI API Key (Press Enter to skip): ").strip()
         anthropic = input("Enter Anthropic API Key (Press Enter to skip): ").strip()
 
@@ -68,8 +68,8 @@ def setup_env(force=False):
         print("\n[Cloud Setup - Google Gemini]")
         gemini = input("Enter Google Gemini API Key: ").strip()
         model = (
-            input("Model Name (default: gemini-2.0-flash): ").strip()
-            or "gemini-2.0-flash"
+            input("Model Name (default: gemini-flash-latest): ").strip()
+            or "gemini-flash-latest"
         )
 
         env_content.append(f"LLM_PROVIDER=cloud")
